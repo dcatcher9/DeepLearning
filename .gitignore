@@ -11,3 +11,8 @@
 *.lai
 *.la
 *.a
+
+#Custom Solution files
+*.opensdf
+*.suo
+*.sdf
