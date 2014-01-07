@@ -34,10 +34,22 @@ namespace deep_learning_lib
         parallel_for_each(top_layer_data.extent,
             [=](index<3> idx) restrict(amp)
         {
-            for (int neuron_index = 0; neuron_index < idx[0]; neuron_index++)
-            {
+            array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
+            float convolution = 0.0f;
 
+            for (int depth_idx = 0; depth_idx < current_neuron.extent[0]; depth_idx++)
+            {
+                for (int width_idx = 0; width_idx < current_neuron.extent[1]; width_idx++)
+                {
+                    for (int height_idx = 0; height_idx < current_neuron.extent[2]; height_idx++)
+                    {
+                        index<3> neuron_idx(depth_idx, width_idx, height_idx);
+                        convolution += bottom_layer_data[idx + neuron_idx] * current_neuron[neuron_idx];
+                    }
+                }
             }
+
+            top_layer_data[idx] = convolution;
         });
     }
 }
