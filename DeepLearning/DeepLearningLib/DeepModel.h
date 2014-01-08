@@ -84,7 +84,9 @@ namespace deep_learning_lib
     class DeepModel
     {
     public:
-
+        
+    private:
+        std::vector<DataLayer> data_layers_;
     };
 }
 
