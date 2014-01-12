@@ -8,8 +8,25 @@ namespace deep_learning_lib
     using namespace concurrency;
 
     DataLayer::DataLayer(int depth, int width, int height)
-        : data_(depth * width * height), data_view_(depth, width, height, data_)
+        : data_(depth * width * height), data_view_(depth, width, height, data_), 
+        data_generated_(data_view_.extent)
     {
+        memory_.reserve(kMemorySize);
+        for (int i = 0; i < kMemorySize; i++)
+        {
+            memory_.emplace_back(data_view_.extent);
+        }
+    }
+
+    void DataLayer::SetData(const std::vector<float>& data)
+    {
+        assert(data.size() == data_.size());
+
+        // Disgard the data on GPU
+        data_view_.discard_data();
+        // Copy the data
+        data_ = data;
+        data_view_.refresh();
     }
 
 
@@ -90,5 +107,27 @@ namespace deep_learning_lib
 
             bottom_layer[idx] = result;
         });
+    }
+
+    void DeepModel::AddDataLayer(int depth, int width, int height)
+    {
+        data_layers_.emplace_back(depth, width, height);
+    }
+
+    void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height)
+    {
+        convolve_layers_.emplace_back(num_neuron, neuron_depth, neuron_width, neuron_height);
+    }
+
+    void DeepModel::FeedInput(const std::vector<float>& data)
+    {
+        auto& bottom_layer = data_layers_.front();
+        
+        bottom_layer.SetData(data);
+    }
+
+    void DeepModel::PassUp()
+    {
+
     }
 }

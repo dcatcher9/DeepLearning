@@ -4,5 +4,9 @@ using namespace deep_learning_lib;
 
 void main()
 {
-    DataLayer d(1, 2, 4);
+    DeepModel model;
+
+    model.AddDataLayer(10, 1, 1);
+    model.AddConvolveLayer(5, 1, 1, 1);
+    model.AddDataLayer(5, 1, 1);
 }
