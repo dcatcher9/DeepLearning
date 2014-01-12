@@ -27,6 +27,7 @@ namespace deep_learning_lib
         concurrency::array_view<float, 3> data_view_;
         // data passed down by generative process, only lives in GPU
         concurrency::array<float, 3> data_generated_;
+        // last data vectors, only lives in GPU
         std::vector<concurrency::array<float, 3>> memory_;
 
     public:
@@ -86,17 +87,17 @@ namespace deep_learning_lib
         void PassDown(concurrency::array_view<const float, 3> top_layer, 
             concurrency::array_view<float, 3> bottom_layer) const;
 
-        void RandomizeParams();
+        void RandomizeParams(unsigned int seed);
     };
 
     class DeepModel
     {
     public:
         void AddDataLayer(int depth, int width, int height);
-        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height);
-        void FeedInput(const std::vector<float>& data);
+        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height, 
+            unsigned int rand_seed = 0);
         
-        void PassUp();
+        void PassUp(const std::vector<float>& data);
         void PassDown();
 
     private:

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <assert.h>
+#include <random>
 
 namespace deep_learning_lib
 {
@@ -109,25 +110,45 @@ namespace deep_learning_lib
         });
     }
 
+    void ConvolveLayer::RandomizeParams(unsigned int seed)
+    {
+        std::default_random_engine generator(seed);
+        std::normal_distribution<float> distribution;
+
+        for (float& w : weights_)
+        {
+            w = distribution(generator);
+        }
+
+        weight_view_.discard_data();
+        weight_view_.refresh();
+    }
+
     void DeepModel::AddDataLayer(int depth, int width, int height)
     {
         data_layers_.emplace_back(depth, width, height);
     }
 
-    void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height)
+    void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height, unsigned int rand_seed)
     {
         convolve_layers_.emplace_back(num_neuron, neuron_depth, neuron_width, neuron_height);
+        convolve_layers_.back().RandomizeParams(rand_seed);
     }
 
-    void DeepModel::FeedInput(const std::vector<float>& data)
+    void DeepModel::PassUp(const std::vector<float>& data)
     {
         auto& bottom_layer = data_layers_.front();
-        
         bottom_layer.SetData(data);
-    }
 
-    void DeepModel::PassUp()
-    {
+        for (int conv_layer_idx = 0; conv_layer_idx < convolve_layers_.size(); conv_layer_idx++)
+        {
+            auto& conv_layer = convolve_layers_[conv_layer_idx];
+            auto& bottom_data_layer = data_layers_[conv_layer_idx];
+            auto& top_data_layer = data_layers_[conv_layer_idx + 1];
 
+            conv_layer.PassUp(bottom_data_layer.data_view_, top_data_layer.data_view_);
+
+            top_data_layer.data_view_.synchronize();
+        }
     }
 }
