@@ -62,7 +62,7 @@ namespace deep_learning_lib
         std::vector<float> weights_;
 
     public:
-        concurrency::array_view<float, 4> weight_view_;
+        concurrency::array_view<float, 4> weights_view_;
 
     public:
         ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height);
@@ -72,19 +72,19 @@ namespace deep_learning_lib
 
         int neuron_num() const
         {
-            return weight_view_.extent[0];
+            return weights_view_.extent[0];
         }
         int neuron_depth() const
         {
-            return weight_view_.extent[1];
+            return weights_view_.extent[1];
         }
         int neuron_width() const
         {
-            return weight_view_.extent[2];
+            return weights_view_.extent[2];
         }
         int neuron_height() const
         {
-            return weight_view_.extent[3];
+            return weights_view_.extent[3];
         }
 
         void PassUp(concurrency::array_view<const float, 3> bottom_layer, 

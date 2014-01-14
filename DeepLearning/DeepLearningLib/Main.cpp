@@ -12,4 +12,5 @@ void main()
 
     std::vector<float> test = { 1, -1, 1, -1, 1, -1, 1, -1, 1, -1 };
     model.PassUp(test);
+    model.PassDown();
 }

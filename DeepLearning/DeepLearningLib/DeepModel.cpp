@@ -3,7 +3,6 @@
 #include <array>
 #include <assert.h>
 #include <random>
-#include <iostream>
 
 namespace deep_learning_lib
 {
@@ -41,12 +40,12 @@ namespace deep_learning_lib
 
     ConvolveLayer::ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height)
         : weights_(num_neuron * neuron_depth * neuron_width * neuron_height),
-        weight_view_(extent<4>(std::array<int, 4>{{ num_neuron, neuron_depth, neuron_width, neuron_height }}.data()), weights_)
+        weights_view_(extent<4>(std::array<int, 4>{{ num_neuron, neuron_depth, neuron_width, neuron_height }}.data()), weights_)
     {
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
-        : weights_(std::move(other.weights_)), weight_view_(other.weight_view_)
+        : weights_(std::move(other.weights_)), weights_view_(other.weights_view_)
     {
     }
 
@@ -56,7 +55,7 @@ namespace deep_learning_lib
         assert(top_layer.extent[0] /* depth */ == this->neuron_num());
 
         // readonly
-        array_view<const float, 4> neuron_weights = weight_view_;
+        array_view<const float, 4> neuron_weights = weights_view_;
         // writeonly
         top_layer.discard_data();
 
@@ -65,6 +64,8 @@ namespace deep_learning_lib
             [=](index<3> idx) restrict(amp)
         {
             array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
+            index<3> base_idx(0, idx[1], idx[2]);
+
             float result = 0.0f;
 
             for (int depth_idx = 0; depth_idx < current_neuron.extent[0]; depth_idx++)
@@ -74,7 +75,7 @@ namespace deep_learning_lib
                     for (int height_idx = 0; height_idx < current_neuron.extent[2]; height_idx++)
                     {
                         index<3> neuron_idx(depth_idx, width_idx, height_idx);
-                        result += bottom_layer[idx + neuron_idx] * current_neuron[neuron_idx];
+                        result += bottom_layer[base_idx + neuron_idx] * current_neuron[neuron_idx];
                     }
                 }
             }
@@ -89,7 +90,7 @@ namespace deep_learning_lib
         assert(top_layer.extent[0] == this->neuron_num());
 
         // readonly
-        array_view<const float, 4> neuron_weights = weight_view_;
+        array_view<const float, 4> neuron_weights = weights_view_;
         // writeonly
         bottom_layer.discard_data();
 
@@ -133,8 +134,8 @@ namespace deep_learning_lib
             w = distribution(generator);
         }
 
-        weight_view_.discard_data();
-        weight_view_.refresh();
+        weights_view_.discard_data();
+        weights_view_.refresh();
     }
 
     void DeepModel::AddDataLayer(int depth, int width, int height)
@@ -160,8 +161,22 @@ namespace deep_learning_lib
             auto& top_data_layer = data_layers_[conv_layer_idx + 1];
 
             conv_layer.PassUp(bottom_data_layer.data_view_, top_data_layer.data_view_);
+        }
+    }
 
-            top_data_layer.data_view_.synchronize();
+    void DeepModel::PassDown()
+    {
+        // prepare top layer for passing down
+        auto& roof_data_layer = data_layers_.back();
+        roof_data_layer.data_view_.copy_to(roof_data_layer.data_generated_);
+
+        for (int conv_layer_idx = (int)convolve_layers_.size() - 1; conv_layer_idx >= 0; conv_layer_idx--)
+        {
+            auto& conv_layer = convolve_layers_[conv_layer_idx];
+            auto& bottom_data_layer = data_layers_[conv_layer_idx];
+            auto& top_data_layer = data_layers_[conv_layer_idx + 1];
+
+            conv_layer.PassDown(top_data_layer.data_generated_, bottom_data_layer.data_generated_);
         }
     }
 }
