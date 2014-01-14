@@ -3,6 +3,7 @@
 #include <array>
 #include <assert.h>
 #include <random>
+#include <iostream>
 
 namespace deep_learning_lib
 {
@@ -17,6 +18,13 @@ namespace deep_learning_lib
         {
             memory_.emplace_back(data_view_.extent);
         }
+    }
+
+    DataLayer::DataLayer(DataLayer&& other)
+        : data_(std::move(other.data_)), data_view_(other.data_view_),
+        data_generated_(std::move(other.data_generated_)), memory_(std::move(other.memory_))
+    {
+
     }
 
     void DataLayer::SetData(const std::vector<float>& data)
@@ -34,6 +42,11 @@ namespace deep_learning_lib
     ConvolveLayer::ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height)
         : weights_(num_neuron * neuron_depth * neuron_width * neuron_height),
         weight_view_(extent<4>(std::array<int, 4>{{ num_neuron, neuron_depth, neuron_width, neuron_height }}.data()), weights_)
+    {
+    }
+
+    ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
+        : weights_(std::move(other.weights_)), weight_view_(other.weight_view_)
     {
     }
 

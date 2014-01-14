@@ -32,6 +32,9 @@ namespace deep_learning_lib
 
     public:
         DataLayer(int depth, int width, int height);
+        // Disable copy constructor
+        DataLayer(const DataLayer&) = delete;
+        DataLayer(DataLayer&& other);
 
         void SetData(const std::vector<float>& data);
 
@@ -63,6 +66,9 @@ namespace deep_learning_lib
 
     public:
         ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height);
+        // Disable copy constructor
+        ConvolveLayer(const ConvolveLayer&) = delete;
+        ConvolveLayer(ConvolveLayer&& other);
 
         int neuron_num() const
         {
