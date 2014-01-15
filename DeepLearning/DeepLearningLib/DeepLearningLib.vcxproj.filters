@@ -18,6 +18,21 @@
     <ClInclude Include="DeepModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="amp_rand_collection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="amp_sobol_rng.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="amp_tinymt_rng.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="xxamp_sobol_rng.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="xxamp_tinymt_precalc_dc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DeepModel.cpp">

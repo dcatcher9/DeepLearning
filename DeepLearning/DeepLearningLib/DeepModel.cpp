@@ -3,14 +3,15 @@
 #include <array>
 #include <assert.h>
 #include <random>
+#include <amp_math.h>
 
 namespace deep_learning_lib
 {
     using namespace concurrency;
 
     DataLayer::DataLayer(int depth, int width, int height)
-        : data_(depth * width * height), data_view_(depth, width, height, data_), 
-        data_generated_(data_view_.extent)
+        : data_(depth * width * height), data_view_(depth, width, height, data_),
+        rand_collection_(data_view_.extent), data_generated_(data_view_.extent)
     {
         memory_.reserve(kMemorySize);
         for (int i = 0; i < kMemorySize; i++)
@@ -21,6 +22,7 @@ namespace deep_learning_lib
 
     DataLayer::DataLayer(DataLayer&& other)
         : data_(std::move(other.data_)), data_view_(other.data_view_),
+        rand_collection_(other.rand_collection_),
         data_generated_(std::move(other.data_generated_)), memory_(std::move(other.memory_))
     {
 
@@ -49,18 +51,20 @@ namespace deep_learning_lib
     {
     }
 
-    void ConvolveLayer::PassUp(concurrency::array_view<const float, 3> bottom_layer,
-        concurrency::array_view<float, 3> top_layer) const
+    void ConvolveLayer::PassUp(array_view<const float, 3> bottom_layer,
+        array_view<float, 3> top_layer_prob, array_view<float, 3> top_layer_sample,
+        tinymt_collection<3>& rand_collection) const
     {
-        assert(top_layer.extent[0] /* depth */ == this->neuron_num());
+        assert(top_layer_prob.extent[0] /* depth */ == this->neuron_num());
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
         // writeonly
-        top_layer.discard_data();
+        top_layer_prob.discard_data();
+        top_layer_sample.discard_data();
 
         // non-tiled version
-        parallel_for_each(top_layer.extent,
+        parallel_for_each(top_layer_prob.extent,
             [=](index<3> idx) restrict(amp)
         {
             array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
@@ -80,22 +84,27 @@ namespace deep_learning_lib
                 }
             }
 
-            top_layer[idx] = result;
+            // Logistic activation function. Maybe more types of activation function later.
+            float prob = 1.0f / (1.0f + fast_math::expf(-result));
+            top_layer_prob[idx] = prob;
+            top_layer_sample[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
         });
     }
 
-    void ConvolveLayer::PassDown(concurrency::array_view<const float, 3> top_layer,
-        concurrency::array_view<float, 3> bottom_layer) const
+    void ConvolveLayer::PassDown(array_view<const float, 3> top_layer,
+        array_view<float, 3> bottom_layer_prob, array_view<float, 3> bottom_layer_sample,
+        tinymt_collection<3>& rand_collection) const
     {
         assert(top_layer.extent[0] == this->neuron_num());
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
         // writeonly
-        bottom_layer.discard_data();
+        bottom_layer_prob.discard_data();
+        bottom_layer_sample.discard_data();
 
         // non-tiled version
-        parallel_for_each(bottom_layer.extent,
+        parallel_for_each(bottom_layer_prob.extent,
             [=](index<3> idx) restrict(amp)
         {
             float result = 0.0f;
@@ -120,7 +129,18 @@ namespace deep_learning_lib
                 }
             }
 
-            bottom_layer[idx] = result;
+            // Logistic activation function. Maybe more types of activation function later.
+            float prob = 1.0f / (1.0f + fast_math::expf(-result));
+            bottom_layer_prob[idx] = prob;
+            bottom_layer_sample[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+        });
+    }
+
+    void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate)
+    {
+        parallel_for_each(weights_view_.extent, [=](index<4> idx) restrict(amp)
+        {
+
         });
     }
 

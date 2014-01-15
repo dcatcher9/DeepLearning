@@ -2,6 +2,9 @@
 #include <amp.h>
 #include <vector>
 
+// for random number generator on GPU
+#include "amp_tinymt_rng.h"
+
 namespace deep_learning_lib
 {
     // 3-dimensional data layer, cache the intermediate result in neural network
@@ -25,6 +28,8 @@ namespace deep_learning_lib
     public:
         const int kMemorySize = 3;
         concurrency::array_view<float, 3> data_view_;
+        tinymt_collection<3> rand_collection_;
+
         // data passed down by generative process, only lives in GPU
         concurrency::array<float, 3> data_generated_;
         // last data vectors, only lives in GPU
@@ -88,10 +93,14 @@ namespace deep_learning_lib
         }
 
         void PassUp(concurrency::array_view<const float, 3> bottom_layer, 
-            concurrency::array_view<float, 3> top_layer) const;
+            concurrency::array_view<float, 3> top_layer_prob, concurrency::array_view<float, 3> top_layer_sample,
+            tinymt_collection<3>& rand_collection) const;
 
         void PassDown(concurrency::array_view<const float, 3> top_layer, 
-            concurrency::array_view<float, 3> bottom_layer) const;
+            concurrency::array_view<float, 3> bottom_layer_prob, concurrency::array_view<float, 3> bottom_layer_sample,
+            tinymt_collection<3>& rand_collection) const;
+
+        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate);
 
         void RandomizeParams(unsigned int seed);
     };
@@ -105,6 +114,8 @@ namespace deep_learning_lib
         
         void PassUp(const std::vector<float>& data);
         void PassDown();
+
+        float Train(const std::vector<float>& data);
 
     private:
         std::vector<DataLayer> data_layers_;

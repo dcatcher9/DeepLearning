@@ -71,7 +71,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="amp_rand_collection.h" />
+    <ClInclude Include="amp_sobol_rng.h" />
+    <ClInclude Include="amp_tinymt_rng.h" />
     <ClInclude Include="DeepModel.h" />
+    <ClInclude Include="xxamp_sobol_rng.h" />
+    <ClInclude Include="xxamp_tinymt_precalc_dc.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DeepModel.cpp" />
