@@ -9,34 +9,41 @@ namespace deep_learning_lib
 {
     using namespace concurrency;
 
-    DataLayer::DataLayer(int depth, int width, int height)
-        : data_(depth * width * height), data_view_(depth, width, height, data_),
-        rand_collection_(data_view_.extent), data_generated_(data_view_.extent)
+    DataLayer::DataLayer(int depth, int width, int height, int seed)
+        : value_(depth * width * height), value_view_(depth, width, height, value_),
+        expect_(value_.size()), expect_view_(value_view_.extent, expect_),
+        next_value_(value_.size()), next_value_view_(value_view_.extent, next_value_),
+        next_expect_(value_.size()), next_expect_view_(value_view_.extent, next_expect_),
+        rand_collection_(value_view_.extent, seed)
     {
         memory_.reserve(kMemorySize);
         for (int i = 0; i < kMemorySize; i++)
         {
-            memory_.emplace_back(data_view_.extent);
+            memory_.emplace_back(value_view_.extent);
         }
     }
 
     DataLayer::DataLayer(DataLayer&& other)
-        : data_(std::move(other.data_)), data_view_(other.data_view_),
-        rand_collection_(other.rand_collection_),
-        data_generated_(std::move(other.data_generated_)), memory_(std::move(other.memory_))
+        : value_(std::move(other.value_)), value_view_(other.value_view_),
+        expect_(std::move(other.expect_)), expect_view_(other.expect_view_),
+        next_value_(std::move(other.next_value_)), next_value_view_(other.next_value_view_),
+        next_expect_(std::move(other.next_expect_)), next_expect_view_(other.next_expect_view_),
+        memory_(std::move(other.memory_)),
+        rand_collection_(other.rand_collection_)
     {
 
     }
 
-    void DataLayer::SetData(const std::vector<float>& data)
+    void DataLayer::SetValue(const std::vector<float>& data)
     {
-        assert(data.size() == data_.size());
+        assert(data.size() == value_.size());
 
         // Disgard the data on GPU
-        data_view_.discard_data();
+        value_view_.discard_data();
         // Copy the data
-        data_ = data;
-        data_view_.refresh();
+        value_ = data;
+        value_view_.refresh();
+
     }
 
 
@@ -51,20 +58,25 @@ namespace deep_learning_lib
     {
     }
 
-    void ConvolveLayer::PassUp(array_view<const float, 3> bottom_layer,
-        array_view<float, 3> top_layer_prob, array_view<float, 3> top_layer_sample,
-        tinymt_collection<3>& rand_collection) const
+    void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
+        DataLayer& top_layer, bool top_switcher) const
     {
-        assert(top_layer_prob.extent[0] /* depth */ == this->neuron_num());
+        assert(top_layer.value_view_.extent[0] /* depth */ == this->neuron_num());
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
+        array_view<const float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+
         // writeonly
-        top_layer_prob.discard_data();
-        top_layer_sample.discard_data();
+        array_view<float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<float, 3> top_layer_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+        top_layer_value.discard_data();
+        top_layer_expect.discard_data();
+
+        auto& rand_collection = top_layer.rand_collection_;
 
         // non-tiled version
-        parallel_for_each(top_layer_prob.extent,
+        parallel_for_each(top_layer_value.extent,
             [=](index<3> idx) restrict(amp)
         {
             array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
@@ -79,32 +91,37 @@ namespace deep_learning_lib
                     for (int height_idx = 0; height_idx < current_neuron.extent[2]; height_idx++)
                     {
                         index<3> neuron_idx(depth_idx, width_idx, height_idx);
-                        result += bottom_layer[base_idx + neuron_idx] * current_neuron[neuron_idx];
+                        result += bottom_layer_value[base_idx + neuron_idx] * current_neuron[neuron_idx];
                     }
                 }
             }
 
             // Logistic activation function. Maybe more types of activation function later.
             float prob = 1.0f / (1.0f + fast_math::expf(-result));
-            top_layer_prob[idx] = prob;
-            top_layer_sample[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+            top_layer_expect[idx] = prob;
+            top_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
         });
     }
 
-    void ConvolveLayer::PassDown(array_view<const float, 3> top_layer,
-        array_view<float, 3> bottom_layer_prob, array_view<float, 3> bottom_layer_sample,
-        tinymt_collection<3>& rand_collection) const
+    void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
+        DataLayer& bottom_layer, bool bottom_switcher) const
     {
-        assert(top_layer.extent[0] == this->neuron_num());
+        assert(top_layer.value_view_.extent[0] == this->neuron_num());
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
+        array_view<const float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+
         // writeonly
-        bottom_layer_prob.discard_data();
-        bottom_layer_sample.discard_data();
+        array_view<float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<float, 3> bottom_layer_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+        bottom_layer_value.discard_data();
+        bottom_layer_expect.discard_data();
+
+        auto& rand_collection = bottom_layer.rand_collection_;
 
         // non-tiled version
-        parallel_for_each(bottom_layer_prob.extent,
+        parallel_for_each(bottom_layer_value.extent,
             [=](index<3> idx) restrict(amp)
         {
             float result = 0.0f;
@@ -123,7 +140,7 @@ namespace deep_learning_lib
                         if (cur_width_idx - width_idx >= 0 && cur_height_idx - height_idx >= 0)
                         {
                             result += current_neuron(cur_depth_idx, cur_width_idx, cur_height_idx) * 
-                                top_layer(neuron_idx, cur_width_idx - width_idx, cur_height_idx - height_idx);
+                                top_layer_value(neuron_idx, cur_width_idx - width_idx, cur_height_idx - height_idx);
                         }
                     }
                 }
@@ -131,8 +148,8 @@ namespace deep_learning_lib
 
             // Logistic activation function. Maybe more types of activation function later.
             float prob = 1.0f / (1.0f + fast_math::expf(-result));
-            bottom_layer_prob[idx] = prob;
-            bottom_layer_sample[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+            bottom_layer_expect[idx] = prob;
+            bottom_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
         });
     }
 
@@ -158,9 +175,9 @@ namespace deep_learning_lib
         weights_view_.refresh();
     }
 
-    void DeepModel::AddDataLayer(int depth, int width, int height)
+    void DeepModel::AddDataLayer(int depth, int width, int height, int seed)
     {
-        data_layers_.emplace_back(depth, width, height);
+        data_layers_.emplace_back(depth, width, height, seed);
     }
 
     void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height, unsigned int rand_seed)
@@ -172,7 +189,7 @@ namespace deep_learning_lib
     void DeepModel::PassUp(const std::vector<float>& data)
     {
         auto& bottom_layer = data_layers_.front();
-        bottom_layer.SetData(data);
+        bottom_layer.SetValue(data);
 
         for (int conv_layer_idx = 0; conv_layer_idx < convolve_layers_.size(); conv_layer_idx++)
         {
@@ -180,7 +197,7 @@ namespace deep_learning_lib
             auto& bottom_data_layer = data_layers_[conv_layer_idx];
             auto& top_data_layer = data_layers_[conv_layer_idx + 1];
 
-            conv_layer.PassUp(bottom_data_layer.data_view_, top_data_layer.data_view_);
+            conv_layer.PassUp(bottom_data_layer, true, top_data_layer, true);
         }
     }
 
@@ -188,7 +205,7 @@ namespace deep_learning_lib
     {
         // prepare top layer for passing down
         auto& roof_data_layer = data_layers_.back();
-        roof_data_layer.data_view_.copy_to(roof_data_layer.data_generated_);
+        roof_data_layer.value_view_.copy_to(roof_data_layer.next_value_view_);
 
         for (int conv_layer_idx = (int)convolve_layers_.size() - 1; conv_layer_idx >= 0; conv_layer_idx--)
         {
@@ -196,7 +213,11 @@ namespace deep_learning_lib
             auto& bottom_data_layer = data_layers_[conv_layer_idx];
             auto& top_data_layer = data_layers_[conv_layer_idx + 1];
 
-            conv_layer.PassDown(top_data_layer.data_generated_, bottom_data_layer.data_generated_);
+            conv_layer.PassDown(top_data_layer, false, bottom_data_layer, false);
         }
+
+        /*auto& root_layer = data_layers_.front();
+        root_layer.next_value_view_.synchronize();
+        root_layer.next_expect_view_.synchronize();*/
     }
 }

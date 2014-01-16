@@ -22,38 +22,43 @@ namespace deep_learning_lib
     class DataLayer
     {
     private:
-        // this vector is initialzed before data_view_
-        std::vector<float> data_;
+        // these vectors are initialzed before the corresponding array_views
+        std::vector<float> value_;
+        std::vector<float> expect_;
+        std::vector<float> next_value_;
+        std::vector<float> next_expect_;
 
     public:
         const int kMemorySize = 3;
-        concurrency::array_view<float, 3> data_view_;
-        tinymt_collection<3> rand_collection_;
-
-        // data passed down by generative process, only lives in GPU
-        concurrency::array<float, 3> data_generated_;
-        // last data vectors, only lives in GPU
+        concurrency::array_view<float, 3> value_view_;
+        concurrency::array_view<float, 3> expect_view_;
+        concurrency::array_view<float, 3> next_value_view_;
+        concurrency::array_view<float, 3> next_expect_view_;
+        
+        // seen data vectors, only lives in GPU
         std::vector<concurrency::array<float, 3>> memory_;
 
+        tinymt_collection<3> rand_collection_;
+
     public:
-        DataLayer(int depth, int width, int height);
+        DataLayer(int depth, int width, int height, int seed = 0);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);
 
-        void SetData(const std::vector<float>& data);
+        void SetValue(const std::vector<float>& data);
 
         int depth() const
         {
-            return data_view_.extent[0];
+            return value_view_.extent[0];
         }
         int width() const
         {
-            return data_view_.extent[1];
+            return value_view_.extent[1];
         }
         int height() const
         {
-            return data_view_.extent[2];
+            return value_view_.extent[2];
         }
     };
 
@@ -92,13 +97,11 @@ namespace deep_learning_lib
             return weights_view_.extent[3];
         }
 
-        void PassUp(concurrency::array_view<const float, 3> bottom_layer, 
-            concurrency::array_view<float, 3> top_layer_prob, concurrency::array_view<float, 3> top_layer_sample,
-            tinymt_collection<3>& rand_collection) const;
+        void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
+            DataLayer& top_layer, bool top_switcher) const;
 
-        void PassDown(concurrency::array_view<const float, 3> top_layer, 
-            concurrency::array_view<float, 3> bottom_layer_prob, concurrency::array_view<float, 3> bottom_layer_sample,
-            tinymt_collection<3>& rand_collection) const;
+        void PassDown(const DataLayer& top_layer, bool top_switcher,
+            DataLayer& bottom_layer, bool bottom_switcher) const;
 
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate);
 
@@ -108,7 +111,7 @@ namespace deep_learning_lib
     class DeepModel
     {
     public:
-        void AddDataLayer(int depth, int width, int height);
+        void AddDataLayer(int depth, int width, int height, int seed = 0);
         void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height, 
             unsigned int rand_seed = 0);
         
