@@ -1,6 +1,7 @@
 #pragma once
 #include <amp.h>
 #include <vector>
+#include <random>
 
 // for random number generator on GPU
 #include "amp_tinymt_rng.h"
@@ -75,6 +76,7 @@ namespace deep_learning_lib
 
     public:
         concurrency::array_view<float, 4> weights_view_;
+        concurrency::array<float, 4> weights_delta_;
 
     public:
         ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height);
@@ -105,7 +107,10 @@ namespace deep_learning_lib
         void PassDown(const DataLayer& top_layer, bool top_switcher,
             DataLayer& bottom_layer, bool bottom_switcher) const;
 
-        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate);
+        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
+            float learning_rate, bool buffered_update);
+
+        void ApplyBufferedUpdate(int buffer_size);
 
         void RandomizeParams(unsigned int seed);
     };
@@ -113,6 +118,10 @@ namespace deep_learning_lib
     class DeepModel
     {
     public:
+        DeepModel(unsigned int model_seed = 0);
+        // Disable copy constructor
+        DeepModel(const DeepModel&) = delete;
+
         void AddDataLayer(int depth, int width, int height, int seed = 0);
         void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height, 
             unsigned int rand_seed = 0);
@@ -121,10 +130,13 @@ namespace deep_learning_lib
         void PassDown();
 
         float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate);
+        void TrainLayer(const std::vector<const std::vector<float>>& dataset,
+            int layer_idx, int mini_batch_size, float learning_rate, int iter_count);
 
     private:
         std::vector<DataLayer> data_layers_;
         std::vector<ConvolveLayer> convolve_layers_;
+        std::default_random_engine random_engine_;
     };
 }
 

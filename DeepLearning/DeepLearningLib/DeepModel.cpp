@@ -62,12 +62,20 @@ namespace deep_learning_lib
 
     ConvolveLayer::ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height)
         : weights_(num_neuron * neuron_depth * neuron_width * neuron_height),
-        weights_view_(extent<4>(std::array<int, 4>{{ num_neuron, neuron_depth, neuron_width, neuron_height }}.data()), weights_)
+        weights_view_(extent<4>(std::array<int, 4>{{ num_neuron, neuron_depth, neuron_width, neuron_height }}.data()), weights_),
+        weights_delta_(weights_view_.extent)
     {
+        auto& weights_delta = weights_delta_;
+        parallel_for_each(weights_delta.extent, 
+            [&](index<4> idx) restrict(amp)
+        {
+            weights_delta[idx] = 0.0f;
+        });
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
-        : weights_(std::move(other.weights_)), weights_view_(other.weights_view_)
+        : weights_(std::move(other.weights_)), weights_view_(other.weights_view_),
+        weights_delta_(std::move(other.weights_delta_))
     {
     }
 
@@ -166,9 +174,10 @@ namespace deep_learning_lib
         });
     }
 
-    void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate)
+    void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
+        float learning_rate, bool buffered_update)
     {
-        auto& weights = weights_view_;
+        array_view<float, 4> weights = buffered_update ? weights_delta_ : weights_view_;
         array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
         array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
         array_view<const float, 3> bottom_layer_value = bottom_layer.value_view_;
@@ -199,6 +208,18 @@ namespace deep_learning_lib
         });
     }
 
+    void ConvolveLayer::ApplyBufferedUpdate(int buffer_size)
+    {
+        auto& weights = weights_view_;
+        auto& weights_delta = weights_delta_;
+
+        parallel_for_each(weights.extent, [=, &weights_delta](index<4> idx) restrict(amp)
+        {
+            weights[idx] += weights_delta[idx] / buffer_size;
+            weights_delta[idx] = 0.0f;
+        });
+    }
+
     void ConvolveLayer::RandomizeParams(unsigned int seed)
     {
         std::default_random_engine generator(seed);
@@ -211,6 +232,11 @@ namespace deep_learning_lib
 
         weights_view_.discard_data();
         weights_view_.refresh();
+    }
+
+    DeepModel::DeepModel(unsigned int model_seed) : random_engine_(model_seed)
+    {
+
     }
 
     void DeepModel::AddDataLayer(int depth, int width, int height, int seed)
@@ -273,8 +299,37 @@ namespace deep_learning_lib
         conv_layer.PassDown(top_layer, true, bottom_layer, false);
         conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
-        conv_layer.Train(bottom_layer, top_layer, learning_rate);
+        conv_layer.Train(bottom_layer, top_layer, learning_rate, false);
 
         return bottom_layer.ReconstructionError();
+    }
+
+    void DeepModel::TrainLayer(const std::vector<const std::vector<float>>& dataset,
+        int layer_idx, int mini_batch_size, float learning_rate, int iter_count)
+    {
+        std::uniform_int_distribution<int> uniform_dist(0, (int)dataset.size() - 1);
+
+        auto& bottom_layer = data_layers_[layer_idx];
+        auto& top_layer = data_layers_[layer_idx + 1];
+
+        auto& conv_layer = convolve_layers_[layer_idx];
+
+        for (int iter = 0; iter < iter_count; iter++)
+        {
+            // sample mini-batch, sample with replacement
+            for (int mini_batch_idx = 0; mini_batch_idx < mini_batch_size; mini_batch_idx++)
+            {
+                auto& data = dataset[uniform_dist(random_engine_)];
+                bottom_layer.SetValue(data);
+
+                conv_layer.PassUp(bottom_layer, true, top_layer, true);
+                conv_layer.PassDown(top_layer, true, bottom_layer, false);
+                conv_layer.PassUp(bottom_layer, false, top_layer, false);
+
+                conv_layer.Train(bottom_layer, top_layer, learning_rate, true);
+            }
+
+            conv_layer.ApplyBufferedUpdate(mini_batch_size);
+        }
     }
 }
