@@ -60,6 +60,8 @@ namespace deep_learning_lib
         {
             return value_view_.extent[2];
         }
+
+        float ReconstructionError() const;
     };
 
     // Contains a collection of neurons, which is 3-dimensional according to data layer.
@@ -118,7 +120,7 @@ namespace deep_learning_lib
         void PassUp(const std::vector<float>& data);
         void PassDown();
 
-        float Train(const std::vector<float>& data);
+        float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate);
 
     private:
         std::vector<DataLayer> data_layers_;

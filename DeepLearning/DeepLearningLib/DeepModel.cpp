@@ -43,7 +43,20 @@ namespace deep_learning_lib
         // Copy the data
         value_ = data;
         value_view_.refresh();
+    }
 
+    float DataLayer::ReconstructionError() const
+    {
+        value_view_.synchronize();
+        next_expect_view_.synchronize();
+
+        float result = 0.0f;
+        for (int i = 0; i < value_.size(); i++)
+        {
+            result += std::powf(value_[i] - next_expect_[i], 2);
+        }
+
+        return std::sqrtf(result);
     }
 
 
@@ -155,9 +168,34 @@ namespace deep_learning_lib
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate)
     {
-        parallel_for_each(weights_view_.extent, [=](index<4> idx) restrict(amp)
-        {
+        auto& weights = weights_view_;
+        array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
+        array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
+        array_view<const float, 3> bottom_layer_value = bottom_layer.value_view_;
+        array_view<const float, 3> bottom_layer_next_value = bottom_layer.next_value_view_;
 
+        // non-tiled version
+        parallel_for_each(weights.extent, [=](index<4> idx) restrict(amp)
+        {
+            float delta = 0.0f;
+
+            int neuron_idx = idx[0];
+
+            for (int top_width_idx = 0; top_width_idx < top_layer_expect.extent[1]; top_width_idx++)
+            {
+                for (int top_height_idx = 0; top_height_idx < top_layer_expect.extent[2]; top_height_idx++)
+                {
+                    float top_expect = top_layer_expect(neuron_idx, top_width_idx, top_height_idx);
+                    float top_next_expect = top_layer_next_expect(neuron_idx, top_width_idx, top_height_idx);
+
+                    float bottom_value = bottom_layer_value(idx[1], idx[2] + top_width_idx, idx[3] + top_height_idx);
+                    float bottom_next_value = bottom_layer_next_value(idx[1], idx[2] + top_width_idx, idx[3] + top_height_idx);
+
+                    delta += bottom_value * top_expect - bottom_next_value * top_next_expect;
+                }
+            }
+
+            weights[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
         });
     }
 
@@ -219,5 +257,24 @@ namespace deep_learning_lib
         /*auto& root_layer = data_layers_.front();
         root_layer.next_value_view_.synchronize();
         root_layer.next_expect_view_.synchronize();*/
+    }
+
+    float DeepModel::TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate)
+    {
+        auto& bottom_layer = data_layers_[layer_idx];
+        auto& top_layer = data_layers_[layer_idx + 1];
+
+        auto& conv_layer = convolve_layers_[layer_idx];
+
+        // train with contrastive divergence (CD) algorithm to maximize likelihood on dataset
+        bottom_layer.SetValue(data);
+
+        conv_layer.PassUp(bottom_layer, true, top_layer, true);
+        conv_layer.PassDown(top_layer, true, bottom_layer, false);
+        conv_layer.PassUp(bottom_layer, false, top_layer, false);
+
+        conv_layer.Train(bottom_layer, top_layer, learning_rate);
+
+        return bottom_layer.ReconstructionError();
     }
 }
