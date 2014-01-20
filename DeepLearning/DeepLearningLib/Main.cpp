@@ -13,7 +13,7 @@ void main()
 
     std::vector<float> test = { 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 };
     
-    for (int i = 0; i < 100; i++)
+    for (int i = 0; i < 200; i++)
     {
         std::cout << "iter " << i << " : l2 err =" << model.TrainLayer(test, 0, 0.1f) << std::endl;
     }

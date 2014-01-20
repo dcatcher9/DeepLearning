@@ -73,10 +73,19 @@ namespace deep_learning_lib
     private:
         // this vector is initialized before weight_view_
         std::vector<float> weights_;
+        // bias for visible nodes, i.e. bottom nodes
+        std::vector<float> vbias_;
+        std::vector<float> hbias_;
 
     public:
         concurrency::array_view<float, 4> weights_view_;
         concurrency::array<float, 4> weights_delta_;
+
+        concurrency::array_view<float, 3> vbias_view_;
+        concurrency::array<float, 3> vbias_delta_;
+
+        concurrency::array_view<float> hbias_view_;
+        concurrency::array<float> hbias_delta_;
 
     public:
         ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height);
