@@ -117,7 +117,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
         DataLayer& top_layer, bool top_switcher) const
     {
-        assert(top_layer.value_view_.extent[0] /* depth */ == this->neuron_num());
+        assert(top_layer.depth() == this->neuron_num());
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
@@ -163,7 +163,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
         DataLayer& bottom_layer, bool bottom_switcher) const
     {
-        assert(top_layer.value_view_.extent[0] == this->neuron_num());
+        assert(top_layer.depth() == this->neuron_num());
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
@@ -325,6 +325,97 @@ namespace deep_learning_lib
 
         weights_view_.discard_data();
         weights_view_.refresh();
+    }
+
+    PoolingLayer::PoolingLayer(int block_width, int block_height)
+        : block_width_(block_width), block_height_(block_height)
+    {
+
+    }
+
+    void PoolingLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
+        DataLayer& top_layer, bool top_switcher) const
+    {
+        assert(top_layer.width() * block_width_ == bottom_layer.width());
+        assert(top_layer.height() * block_height_ == bottom_layer.height());
+
+        // readonly
+        int block_width = block_width_;
+        int block_height = block_height_;
+        array_view<const float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<const float, 3> bottom_layer_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+
+        // writeonly
+        array_view<float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<float, 3> top_layer_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+        top_layer_value.discard_data();
+        top_layer_expect.discard_data();
+
+        parallel_for_each(top_layer_value.extent, [=](index<3> idx) restrict(amp)
+        {
+            float max_value = 0.0f;
+            float max_expect = 1.0f;
+            for (int width_idx = 0; width_idx < block_width; width_idx++)
+            {
+                for (int height_idx = 0; height_idx < block_height; height_idx++)
+                {
+                    float value = bottom_layer_value(idx[0], idx[1] * block_width + width_idx, idx[2] * block_height + height_idx);
+                    float expect = bottom_layer_expect(idx[0], idx[1] * block_width + width_idx, idx[2] * block_height + height_idx);
+
+                    max_value = fast_math::fmaxf(max_value, value);
+                    max_expect *= (1.0f - expect); // the probability that all nodes are 0
+                }
+            }
+            max_expect = 1.0f - max_expect;// the probability that at least one node is 1.
+
+            top_layer_value[idx] = max_value;
+            top_layer_expect[idx] = max_expect;
+        });
+    }
+
+    void PoolingLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
+        DataLayer& bottom_layer, bool bottom_switcher) const
+    {
+        assert(top_layer.width() * block_width_ == bottom_layer.width());
+        assert(top_layer.height() * block_height_ == bottom_layer.height());
+
+        // readonly
+        int block_width = block_width_;
+        int block_height = block_height_;
+        array_view<const float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<const float, 3> top_layer_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+
+        // writeonly
+        array_view<float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<float, 3> bottom_layer_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+        bottom_layer_value.discard_data();
+        bottom_layer_expect.discard_data();
+
+        auto& rand_collection = bottom_layer.rand_collection_;
+
+        parallel_for_each(bottom_layer_value.extent, [=](index<3> idx) restrict(amp)
+        {
+            // when we have memory, the bottom_layer can activate according to its memory. 
+            // But now we just use uniform activation.
+
+            int width_idx = idx[1] / block_width;// trunc towards zero
+            int height_idx = idx[2] / block_height;
+
+            bottom_layer_expect[idx] = 1.0f - fast_math::powf(1.0f - 
+                top_layer_expect(idx[0], width_idx, height_idx), -1.0f * block_width * block_height);
+            bottom_layer_value[idx] = 0.0f;// clear the value
+        });
+
+        parallel_for_each(top_layer_value.extent, [=](index<3> idx) restrict(amp)
+        {
+            if (top_layer_value[idx] == 1.0f)
+            {
+                // randomly select a node in bottom_layer to activate
+                int width_idx = rand_collection[idx].next_uint() % block_width;
+                int height_idx = rand_collection[idx].next_uint() % block_height;
+                bottom_layer_value(idx[0], idx[1] * block_width + width_idx, idx[2] * block_height + height_idx) = 1.0f;
+            }
+        });
     }
 
     DeepModel::DeepModel(unsigned int model_seed) : random_engine_(model_seed)

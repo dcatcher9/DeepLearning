@@ -124,6 +124,24 @@ namespace deep_learning_lib
         void RandomizeParams(unsigned int seed);
     };
 
+    // Pooling layer after convolvation, no params. 
+    // Currently support max pooling, which is the most common pooling method.
+    class PoolingLayer
+    {
+    public:
+        int block_width_;
+        int block_height_;
+
+    public:
+        PoolingLayer(int block_width, int block_height);
+
+        void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
+            DataLayer& top_layer, bool top_switcher) const;
+
+        void PassDown(const DataLayer& top_layer, bool top_switcher,
+            DataLayer& bottom_layer, bool bottom_switcher) const;
+    };
+
     class DeepModel
     {
     public:
