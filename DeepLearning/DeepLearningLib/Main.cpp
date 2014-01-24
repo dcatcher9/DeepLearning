@@ -1,20 +1,69 @@
 #include "DeepModel.h"
+
 #include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <algorithm>
+
+#include "cpplinq.hpp"
 
 using namespace deep_learning_lib;
 
-void main()
+std::vector<std::string> split(const std::string& s, const std::string& delim, const bool keep_empty = true) {
+    std::vector<std::string> result;
+    if (delim.empty()) {
+        result.push_back(s);
+        return result;
+    }
+    std::string::const_iterator substart = s.begin(), subend;
+    while (true) {
+        subend = search(substart, s.end(), delim.begin(), delim.end());
+        std::string temp(substart, subend);
+        if (keep_empty || !temp.empty()) {
+            result.push_back(temp);
+        }
+        if (subend == s.end()) {
+            break;
+        }
+        substart = subend + delim.size();
+    }
+    return result;
+}
+
+void TestUSPS()
 {
+    using namespace cpplinq;
+
+    std::ifstream ifs(".\\Data Files\\usps_all.txt");
+    
+    std::string line;
+    std::getline(ifs, line);
+
+    std::vector<std::string> headers = split(line, " ");
+    int row_count = std::stoi(headers[0]);
+    int row_len = std::stoi(headers[1]);
+
+    std::vector<const std::vector<float>> data;
+    data.reserve(row_count);
+
+    while (std::getline(ifs, line))
+    {
+        auto bits = from(split(line, " ", false)) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        data.emplace_back(bits);
+    }
+
     DeepModel model;
 
-    model.AddDataLayer(10, 1, 1, 1);
-    model.AddConvolveLayer(5, 10, 1, 1);
-    model.AddDataLayer(5, 1, 1, 2);
+    model.AddDataLayer(266, 1, 1, 1);
+    model.AddConvolveLayer(100, 266, 1, 1);
+    model.AddDataLayer(100, 1, 1, 2);
 
-    std::vector<float> test = { 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 };
-    
-    for (int i = 0; i < 200; i++)
-    {
-        std::cout << "iter " << i << " : l2 err =" << model.TrainLayer(test, 0, 0.1f) << std::endl;
-    }
+    model.TrainLayer(data, 0, 5, 0.1f, 10000);
+
+}
+
+void main()
+{
+    TestUSPS();
 }

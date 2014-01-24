@@ -5,6 +5,8 @@
 #include <random>
 #include <amp_math.h>
 
+#include <iostream>
+
 namespace deep_learning_lib
 {
     using namespace concurrency;
@@ -463,10 +465,6 @@ namespace deep_learning_lib
 
             conv_layer.PassDown(top_data_layer, false, bottom_data_layer, false);
         }
-
-        /*auto& root_layer = data_layers_.front();
-        root_layer.next_value_view_.synchronize();
-        root_layer.next_expect_view_.synchronize();*/
     }
 
     float DeepModel::TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate)
@@ -514,6 +512,8 @@ namespace deep_learning_lib
             }
 
             conv_layer.ApplyBufferedUpdate(mini_batch_size);
+
+            std::cout << "iter = " << iter << "\t err = " << bottom_layer.ReconstructionError() << std::endl;
         }
     }
 }
