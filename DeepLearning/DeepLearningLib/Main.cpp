@@ -49,17 +49,17 @@ void TestUSPS()
 
     while (std::getline(ifs, line))
     {
-        auto bits = from(split(line, " ", false)) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        auto bits = from(split(line, " ", false)) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
         data.emplace_back(bits);
     }
 
     DeepModel model;
 
-    model.AddDataLayer(266, 1, 1, 1);
-    model.AddConvolveLayer(100, 266, 1, 1);
-    model.AddDataLayer(100, 1, 1, 2);
+    model.AddDataLayer(1, 16, 16, 1);
+    model.AddConvolveLayer(10, 1, 4, 4);
+    model.AddDataLayer(10, 12, 12, 2);
 
-    model.TrainLayer(data, 0, 5, 0.1f, 10000);
+    model.TrainLayer(data, 0, 1, 0.1f, 10000);
 
 }
 
