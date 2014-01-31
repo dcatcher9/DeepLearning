@@ -58,7 +58,7 @@ void TestUSPS()
 
     model.AddDataLayer(1, 16, 16, 1);
     model.AddConvolveLayer(20, 1, 8, 8);
-    model.AddDataLayer(20, 8, 8, 2);
+    model.AddDataLayer(20, 9, 9, 2);
 
     for (int i = 0; i < 1000; i++)
     {
@@ -72,16 +72,36 @@ void TestUSPS()
 
 void TestRBM()
 {
+    using namespace cpplinq;
+
+    std::ifstream ifs(".\\Data Files\\usps_all.txt");
+
+    std::string line;
+    std::getline(ifs, line);
+
+    std::vector<std::string> headers = split(line, " ");
+    int row_count = std::stoi(headers[0]);
+    int row_len = std::stoi(headers[1]);
+
+    std::vector<const std::vector<float>> data;
+    data.reserve(row_count);
+
+    while (std::getline(ifs, line))
+    {
+        auto bits = from(split(line, " ", false)) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        data.emplace_back(bits);
+        break;
+    }
+
     DeepModel model;
 
-    model.AddDataLayer(10, 1, 1);
-    model.AddConvolveLayer(20, 10, 1, 1);
+    model.AddDataLayer(256, 1, 1);
+    model.AddConvolveLayer(20, 256, 1, 1);
     model.AddDataLayer(20, 1, 1, 2);
 
-    std::vector<float> data = { 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 };
     for (int i = 0; i < 1000; i++)
     {
-        float err = model.TrainLayer(data, 0, 0.1f);
+        float err = model.TrainLayer(data.front(), 0, 0.1f);
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }
 }

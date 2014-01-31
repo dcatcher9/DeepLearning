@@ -120,6 +120,8 @@ namespace deep_learning_lib
         DataLayer& top_layer, bool top_switcher) const
     {
         assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
+        assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
@@ -170,6 +172,8 @@ namespace deep_learning_lib
         DataLayer& bottom_layer, bool bottom_switcher) const
     {
         assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
+        assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
         // readonly
         array_view<const float, 4> neuron_weights = weights_view_;
@@ -202,7 +206,10 @@ namespace deep_learning_lib
                 {
                     for (int height_idx = 0; height_idx < current_neuron.extent[2]; height_idx++)
                     {
-                        if (cur_width_idx - width_idx >= 0 && cur_height_idx - height_idx >= 0)
+                        // make sure the convolve window fits in the bottom layer
+                        if (cur_width_idx - width_idx >= 0 && cur_height_idx - height_idx >= 0 &&
+                            cur_width_idx - width_idx + current_neuron.extent[1] <= bottom_layer_value.extent[1] &&
+                            cur_height_idx - height_idx + current_neuron.extent[2] <= bottom_layer_value.extent[2])
                         {
                             result += current_neuron(cur_depth_idx, width_idx, height_idx) * 
                                 top_layer_value(neuron_idx, cur_width_idx - width_idx, cur_height_idx - height_idx);
