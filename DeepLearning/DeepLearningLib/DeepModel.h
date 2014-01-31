@@ -81,8 +81,9 @@ namespace deep_learning_lib
         concurrency::array_view<float, 4> weights_view_;
         concurrency::array<float, 4> weights_delta_;
 
-        concurrency::array_view<float, 3> vbias_view_;
-        concurrency::array<float, 3> vbias_delta_;
+        // corresponding to the depth dimension
+        concurrency::array_view<float> vbias_view_;
+        concurrency::array<float> vbias_delta_;
 
         concurrency::array_view<float> hbias_view_;
         concurrency::array<float> hbias_delta_;
