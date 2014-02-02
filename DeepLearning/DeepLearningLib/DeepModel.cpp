@@ -69,6 +69,27 @@ namespace deep_learning_lib
         return std::sqrtf(result);
     }
 
+    bitmap_image DataLayer::GenerateImage() const
+    {
+        value_view_.synchronize();
+        expect_view_.synchronize();
+        next_value_view_.synchronize();
+        next_expect_view_.synchronize();
+
+        bitmap_image image;
+
+        if (width() == 1 && height() == 1)
+        {
+        }
+        else
+        {
+
+        }
+
+        return image;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     ConvolveLayer::ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height)
         : weights_(num_neuron * neuron_depth * neuron_width * neuron_height),
@@ -163,9 +184,10 @@ namespace deep_learning_lib
             top_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
         });
 
-        // for debug
+#ifdef DEBUG_SYNC
         top_layer_value.synchronize();
         top_layer_expect.synchronize();
+#endif
     }
 
     void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
@@ -224,9 +246,10 @@ namespace deep_learning_lib
             bottom_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
         });
 
-        // for debug
+#ifdef DEBUG_SYNC
         bottom_layer_value.synchronize();
         bottom_layer_expect.synchronize();
+#endif
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
@@ -305,9 +328,11 @@ namespace deep_learning_lib
             hbias[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
         });
 
+#ifdef DEBUG_SYNC
         weights.synchronize();
         vbias.synchronize();
         hbias.synchronize();
+#endif
     }
 
     void ConvolveLayer::ApplyBufferedUpdate(int buffer_size)
@@ -336,6 +361,12 @@ namespace deep_learning_lib
             hbias[idx] += hbias_delta[idx] / buffer_size;
             hbias_delta[idx] = 0.0f;
         });
+
+#ifdef DEBUG_SYNC
+        weights.synchronize();
+        vbias.synchronize();
+        hbias.synchronize();
+#endif
     }
 
     void ConvolveLayer::RandomizeParams(unsigned int seed)
@@ -351,6 +382,16 @@ namespace deep_learning_lib
         weights_view_.discard_data();
         weights_view_.refresh();
     }
+
+    bitmap_image ConvolveLayer::GenerateImage() const
+    {
+        bitmap_image image;
+        
+
+        return image;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     PoolingLayer::PoolingLayer(int block_width, int block_height)
         : block_width_(block_width), block_height_(block_height)
@@ -442,6 +483,8 @@ namespace deep_learning_lib
             }
         });
     }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     DeepModel::DeepModel(unsigned int model_seed) : random_engine_(model_seed)
     {
@@ -538,5 +581,10 @@ namespace deep_learning_lib
 
             std::cout << "iter = " << iter << "\t err = " << bottom_layer.ReconstructionError() << std::endl;
         }
+    }
+
+    void DeepModel::GenerateImages(const std::string& folder) const
+    {
+
     }
 }

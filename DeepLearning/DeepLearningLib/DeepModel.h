@@ -6,6 +6,9 @@
 // for random number generator on GPU
 #include "amp_tinymt_rng.h"
 
+// for bitmap generation
+#include "bitmap_image.hpp"
+
 namespace deep_learning_lib
 {
     // 3-dimensional data layer, cache the intermediate result in neural network
@@ -63,6 +66,8 @@ namespace deep_learning_lib
         }
 
         float ReconstructionError() const;
+
+        bitmap_image GenerateImage() const;
     };
 
     // Contains a collection of neurons, which is 3-dimensional according to data layer.
@@ -123,6 +128,8 @@ namespace deep_learning_lib
         void ApplyBufferedUpdate(int buffer_size);
 
         void RandomizeParams(unsigned int seed);
+
+        bitmap_image GenerateImage() const;
     };
 
     // Pooling layer after convolvation, no params. 
@@ -160,6 +167,8 @@ namespace deep_learning_lib
         float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate);
         void TrainLayer(const std::vector<const std::vector<float>>& dataset,
             int layer_idx, int mini_batch_size, float learning_rate, int iter_count);
+
+        void GenerateImages(const std::string& folder) const;
 
     private:
         std::vector<DataLayer> data_layers_;

@@ -51,7 +51,6 @@ void TestUSPS()
     {
         auto bits = from(split(line, " ", false)) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
         data.emplace_back(bits);
-        break;
     }
 
     DeepModel model;
@@ -60,13 +59,13 @@ void TestUSPS()
     model.AddConvolveLayer(20, 1, 8, 8);
     model.AddDataLayer(20, 9, 9, 2);
 
-    for (int i = 0; i < 1000; i++)
+    /*for (int i = 0; i < 1000; i++)
     {
         float err = model.TrainLayer(data.front(), 0, 0.1f);
         std::cout << "iter = " << i << " err = " << err << std::endl;
-    }
+    }*/
     
-    //model.TrainLayer(data, 0, 1, 0.1f, 10000);
+    model.TrainLayer(data, 0, 5, 0.1f, 10000);
 
 }
 
@@ -108,6 +107,6 @@ void TestRBM()
 
 void main()
 {
-    //TestUSPS();
-    TestRBM();
+    TestUSPS();
+    //TestRBM();
 }
