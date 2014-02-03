@@ -45,25 +45,26 @@ namespace deep_learning_lib
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int depth, int width, int height, int seed = 0);
+        DataLayer(int depth, int height, int width, int seed = 0);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);
 
         void SetValue(const std::vector<float>& data);
 
-        int depth() const
+        inline int depth() const
         {
             return value_view_.extent[0];
         }
-        int width() const
+        inline int height() const
         {
             return value_view_.extent[1];
         }
-        int height() const
+        inline int width() const
         {
             return value_view_.extent[2];
         }
+        
 
         float ReconstructionError() const;
 
@@ -94,27 +95,28 @@ namespace deep_learning_lib
         concurrency::array<float> hbias_delta_;
 
     public:
-        ConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height);
+        ConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
 
-        int neuron_num() const
+        inline int neuron_num() const
         {
             return weights_view_.extent[0];
         }
-        int neuron_depth() const
+        inline int neuron_depth() const
         {
             return weights_view_.extent[1];
         }
-        int neuron_width() const
+        inline int neuron_height() const
         {
             return weights_view_.extent[2];
         }
-        int neuron_height() const
+        inline int neuron_width() const
         {
             return weights_view_.extent[3];
         }
+        
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher) const;
@@ -137,11 +139,11 @@ namespace deep_learning_lib
     class PoolingLayer
     {
     public:
-        int block_width_;
         int block_height_;
+        int block_width_;
 
     public:
-        PoolingLayer(int block_width, int block_height);
+        PoolingLayer(int block_height, int block_width);
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher) const;
@@ -157,8 +159,8 @@ namespace deep_learning_lib
         // Disable copy constructor
         DeepModel(const DeepModel&) = delete;
 
-        void AddDataLayer(int depth, int width, int height, int seed = 0);
-        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_width, int neuron_height, 
+        void AddDataLayer(int depth, int height, int width, int seed = 0);
+        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width,
             unsigned int rand_seed = 0);
         
         void PassUp(const std::vector<float>& data);

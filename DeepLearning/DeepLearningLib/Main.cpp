@@ -65,8 +65,9 @@ void TestUSPS()
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
     
-    model.TrainLayer(data, 0, 5, 0.1f, 10000);
+    model.TrainLayer(data, 0, 5, 0.1f, 1100);
 
+    model.GenerateImages("model_dump");
 }
 
 void TestRBM()
@@ -89,20 +90,23 @@ void TestRBM()
     {
         auto bits = from(split(line, " ", false)) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
         data.emplace_back(bits);
-        break;
     }
 
     DeepModel model;
 
     model.AddDataLayer(256, 1, 1);
-    model.AddConvolveLayer(20, 256, 1, 1);
-    model.AddDataLayer(20, 1, 1, 2);
+    model.AddConvolveLayer(100, 256, 1, 1);
+    model.AddDataLayer(100, 1, 1, 2);
 
-    for (int i = 0; i < 1000; i++)
+    /*for (int i = 0; i < 1000; i++)
     {
         float err = model.TrainLayer(data.front(), 0, 0.1f);
         std::cout << "iter = " << i << " err = " << err << std::endl;
-    }
+    }*/
+
+    model.TrainLayer(data, 0, 5, 0.1f, 1000);
+
+    model.GenerateImages("model_dump");
 }
 
 void main()
