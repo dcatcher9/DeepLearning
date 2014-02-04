@@ -469,6 +469,142 @@ namespace deep_learning_lib
 
         bitmap_image image;
         
+        const int block_size = 2;
+
+        float max_positive_weight = 0;
+        float min_negative_weight = 0;
+        for (float weight : weights_)
+        {
+            if (weight > max_positive_weight)
+            {
+                max_positive_weight = weight;
+            }
+            else if (weight < min_negative_weight)
+            {
+                min_negative_weight = weight;
+            }
+        }
+        if (max_positive_weight == 0.0f)
+        {
+            max_positive_weight = std::numeric_limits<float>::min();
+        }
+        if (min_negative_weight == 0.0f)
+        {
+            min_negative_weight = -std::numeric_limits<float>::min();
+        }
+
+        float max_positive_vbias = 0;
+        float min_negative_vbias = 0;
+        for (float vbias : vbias_)
+        {
+            if (vbias > max_positive_vbias)
+            {
+                max_positive_vbias = vbias;
+            }
+            else if (vbias < min_negative_vbias)
+            {
+                min_negative_vbias = vbias;
+            }
+        }
+        if (max_positive_vbias == 0.0f)
+        {
+            max_positive_vbias = std::numeric_limits<float>::min();
+        }
+        if (min_negative_vbias == 0.0f)
+        {
+            min_negative_vbias = -std::numeric_limits<float>::min();
+        }
+
+        float max_positive_hbias = 0;
+        float min_negative_hbias = 0;
+        for (float hbias : hbias_)
+        {
+            if (hbias > max_positive_hbias)
+            {
+                max_positive_hbias = hbias;
+            }
+            else if (hbias < min_negative_hbias)
+            {
+                min_negative_hbias = hbias;
+            }
+        }
+        if (max_positive_hbias == 0.0f)
+        {
+            max_positive_hbias = std::numeric_limits<float>::min();
+        }
+        if (min_negative_hbias == 0.0f)
+        {
+            min_negative_hbias = -std::numeric_limits<float>::min();
+        }
+
+        if (neuron_width() == 1 && neuron_height() == 1)
+        {
+            image.setwidth_height(std::max(neuron_num(), neuron_depth()) * (block_size + 1), (3 + neuron_num()) * (block_size + 1), true);
+
+            for (int i = 0; i < vbias_.size(); i++)
+            {
+                image.set_region(i * (block_size + 1), 0, block_size, block_size,
+                    vbias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(vbias_[i] >= 0 ? vbias_[i] / max_positive_vbias * 255.0 : vbias_[i] / min_negative_vbias * 255.0));
+            }
+
+            for (int i = 0; i < hbias_.size(); i++)
+            {
+                image.set_region(i * (block_size + 1), block_size + 1, block_size, block_size,
+                    hbias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(hbias_[i] >= 0 ? hbias_[i] / max_positive_hbias * 255.0 : hbias_[i] / min_negative_hbias * 255.0));
+            }
+
+            for (int neuron_idx = 0; neuron_idx < neuron_num(); neuron_idx++)
+            {
+                for (int depth_idx = 0; depth_idx < neuron_depth(); depth_idx++)
+                {
+                    float value = weights_[neuron_idx * neuron_depth() + depth_idx];
+                    image.set_region(depth_idx * (block_size + 1), (3 + neuron_idx) * (block_size + 1), block_size, block_size,
+                        value >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                        static_cast<unsigned char>(value >= 0 ? value / max_positive_weight * 255.0 : value / min_negative_weight * 255.0));
+                }
+            }
+        }
+        else
+        {
+            image.setwidth_height(std::max(neuron_num(), neuron_depth() * (neuron_width() + 1)) * (block_size + 1),
+                (3 + neuron_num() * (neuron_height() + 1)) * (block_size + 1), true);
+
+            for (int i = 0; i < vbias_.size(); i++)
+            {
+                image.set_region(i * (block_size + 1), 0, block_size, block_size,
+                    vbias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(vbias_[i] >= 0 ? vbias_[i] / max_positive_vbias * 255.0 : vbias_[i] / min_negative_vbias * 255.0));
+            }
+
+            for (int i = 0; i < hbias_.size(); i++)
+            {
+                image.set_region(i * (block_size + 1), block_size + 1, block_size, block_size,
+                    hbias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(hbias_[i] >= 0 ? hbias_[i] / max_positive_hbias * 255.0 : hbias_[i] / min_negative_hbias * 255.0));
+            }
+
+            for (int neuron_idx = 0; neuron_idx < neuron_num(); neuron_idx++)
+            {
+                for (int depth_idx = 0; depth_idx < neuron_depth(); depth_idx++)
+                {
+                    for (int height_idx = 0; height_idx < neuron_height(); height_idx++)
+                    {
+                        for (int width_idx = 0; width_idx < neuron_width(); width_idx++)
+                        {
+                            float value = weights_[neuron_idx * neuron_depth() * neuron_height() * neuron_width()
+                                + depth_idx * neuron_height() * neuron_width() + height_idx * neuron_width() + width_idx];
+
+                            image.set_region((width_idx + depth_idx * (neuron_width() + 1)) * (block_size + 1),
+                                (3 + neuron_idx * (neuron_height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
+                                value >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane, 
+                                static_cast<unsigned char>(value >= 0 ? value / max_positive_weight * 255.0 : value / min_negative_weight * 255.0));
+                        }
+                    }
+                }
+            }
+        }
 
         return image;
     }
@@ -672,6 +808,14 @@ namespace deep_learning_lib
 
     void DeepModel::GenerateImages(const std::string& folder) const
     {
-        data_layers_.front().GenerateImage().save_image(folder + "\\layer0_data.bmp");
+        for (int i = 0; i < data_layers_.size(); i++)
+        {
+            data_layers_[i].GenerateImage().save_image(folder + "\\layer" + std::to_string(i) + "_data.bmp");
+        }
+        
+        for (int i = 0; i < convolve_layers_.size(); i++)
+        {
+            convolve_layers_[i].GenerateImage().save_image(folder + "\\layer" + std::to_string(i) + "_conv.bmp");
+        }
     }
 }
