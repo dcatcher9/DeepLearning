@@ -65,7 +65,7 @@ void TestUSPS()
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
     
-    model.TrainLayer(data, 0, 5, 0.1f, 1100);
+    model.TrainLayer(data, 0, 5, 0.2f, 0.5f, 1100);
 
     model.GenerateImages("model_dump");
 }
@@ -104,7 +104,7 @@ void TestRBM()
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
-    model.TrainLayer(data, 0, 5, 0.1f, 1000);
+    model.TrainLayer(data, 0, 5, 0.1f, 0.5f, 1000);
 
     model.GenerateImages("model_dump");
 }

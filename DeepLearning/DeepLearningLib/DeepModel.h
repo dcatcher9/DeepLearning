@@ -27,17 +27,23 @@ namespace deep_learning_lib
     {
     private:
         // these vectors are initialzed before the corresponding array_views
-        std::vector<float> value_;
-        std::vector<float> expect_;
-        std::vector<float> next_value_;
-        std::vector<float> next_expect_;
+        std::vector<float>  value_;
+        std::vector<float>  expect_;
 
+        std::vector<float>  next_value_;
+        std::vector<float>  next_expect_;
+
+        float active_prob_;
+        std::vector<int>    active_;
+        
     public:
         const int kMemorySize = 3;
-        concurrency::array_view<float, 3> value_view_;
-        concurrency::array_view<float, 3> expect_view_;
-        concurrency::array_view<float, 3> next_value_view_;
-        concurrency::array_view<float, 3> next_expect_view_;
+        concurrency::array_view<float, 3>   value_view_;
+        concurrency::array_view<float, 3>   expect_view_;
+        concurrency::array_view<float, 3>   next_value_view_;
+        concurrency::array_view<float, 3>   next_expect_view_;
+        // for dropout
+        concurrency::array_view<int, 3>     active_view_;
         
         // seen data vectors, only lives in GPU
         std::vector<concurrency::array<float, 3>> memory_;
@@ -64,7 +70,8 @@ namespace deep_learning_lib
         {
             return value_view_.extent[2];
         }
-        
+
+        void Activate(float probability = 1.0f);
 
         float ReconstructionError() const;
 
@@ -73,7 +80,8 @@ namespace deep_learning_lib
 
     // Contains a collection of neurons, which is 3-dimensional according to data layer.
     // So the model layer has 4-dimensional structure. Responsible for processing data layer
-    // using neurons within and adjusting neuron weights during learning.
+    // using neurons within and adjusting neuron weights during learning. 
+    // Suppose dropout with fixed probability.
     class ConvolveLayer
     {
     private:
@@ -84,15 +92,15 @@ namespace deep_learning_lib
         std::vector<float> hbias_;
 
     public:
-        concurrency::array_view<float, 4> weights_view_;
-        concurrency::array<float, 4> weights_delta_;
+        concurrency::array_view<float, 4>   weights_view_;
+        concurrency::array<float, 4>        weights_delta_;
 
         // corresponding to the depth dimension
-        concurrency::array_view<float> vbias_view_;
-        concurrency::array<float> vbias_delta_;
+        concurrency::array_view<float>      vbias_view_;
+        concurrency::array<float>           vbias_delta_;
 
-        concurrency::array_view<float> hbias_view_;
-        concurrency::array<float> hbias_delta_;
+        concurrency::array_view<float>      hbias_view_;
+        concurrency::array<float>           hbias_delta_;
 
     public:
         ConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width);
@@ -116,7 +124,6 @@ namespace deep_learning_lib
         {
             return weights_view_.extent[3];
         }
-        
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher) const;
@@ -162,13 +169,13 @@ namespace deep_learning_lib
         void AddDataLayer(int depth, int height, int width, int seed = 0);
         void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width,
             unsigned int rand_seed = 0);
-        
+
         void PassUp(const std::vector<float>& data);
         void PassDown();
 
-        float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate);
+        float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob);
         void TrainLayer(const std::vector<const std::vector<float>>& dataset,
-            int layer_idx, int mini_batch_size, float learning_rate, int iter_count);
+            int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
 
         void GenerateImages(const std::string& folder) const;
 
