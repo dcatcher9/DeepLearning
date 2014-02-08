@@ -78,6 +78,57 @@ namespace deep_learning_lib
         bitmap_image GenerateImage() const;
     };
 
+    // Currently support 1-of-N classifier output.
+    // It contains both data and weight parameters. 
+    // Support both discriminative and generative training.
+    class OutputLayer
+    {
+    private:
+        std::vector<float> outputs_;
+        std::vector<float> next_outputs_;
+        std::vector<float> bias_;
+        std::vector<float> weights_;
+
+    public:
+        concurrency::array_view<float>  outputs_view_;
+        concurrency::array_view<float>  next_outputs_view_;
+        
+        concurrency::array_view<float>  bias_view_;
+        concurrency::array<float>       bias_delta_;
+
+        concurrency::array_view<float, 4>   weights_view_;
+        concurrency::array<float, 4>        weights_delta_;
+
+    public:
+        OutputLayer(int input_depth, int input_height, int input_width, int output_num);
+        // Disable copy constructor
+        OutputLayer(const OutputLayer&) = delete;
+        OutputLayer(OutputLayer&& other);
+
+        inline int input_depth() const
+        {
+            return weights_view_.extent[0];
+        }
+        inline int input_height() const
+        {
+            return weights_view_.extent[1];
+        }
+        inline int input_width() const
+        {
+            return weights_view_.extent[2];
+        }
+        inline int output_num() const
+        {
+            return weights_view_.extent[3];
+        }
+
+        void SetLabel(int index);
+
+        void ApplyBufferedUpdate(int buffer_size);
+
+        void RandomizeParams(unsigned int seed);
+    };
+
     // Contains a collection of neurons, which is 3-dimensional according to data layer.
     // So the model layer has 4-dimensional structure. Responsible for processing data layer
     // using neurons within and adjusting neuron weights during learning. 
@@ -128,8 +179,16 @@ namespace deep_learning_lib
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher) const;
 
+        void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
+            const OutputLayer& output_layer, bool output_switcher,
+            DataLayer& top_layer, bool top_switcher) const;
+
         void PassDown(const DataLayer& top_layer, bool top_switcher,
             DataLayer& bottom_layer, bool bottom_switcher) const;
+
+        void PassDown(const DataLayer& top_layer, bool top_switcher,
+            DataLayer& bottom_layer, bool bottom_switcher,
+            OutputLayer& output_layer, bool output_switcher) const;
 
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
             float learning_rate, bool buffered_update);
@@ -151,6 +210,9 @@ namespace deep_learning_lib
 
     public:
         PoolingLayer(int block_height, int block_width);
+        // Disable copy constructor
+        PoolingLayer(const PoolingLayer&) = delete;
+        PoolingLayer(PoolingLayer&& other);
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher) const;
