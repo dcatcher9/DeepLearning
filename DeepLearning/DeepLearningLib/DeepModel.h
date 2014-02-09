@@ -193,6 +193,9 @@ namespace deep_learning_lib
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
             float learning_rate, bool buffered_update);
 
+        void Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
+            float learning_rate, bool buffered_update);
+
         void ApplyBufferedUpdate(int buffer_size);
 
         void RandomizeParams(unsigned int seed);

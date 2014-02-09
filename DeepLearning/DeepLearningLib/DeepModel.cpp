@@ -552,6 +552,7 @@ namespace deep_learning_lib
         array_view<const float> vbias = vbias_view_;
         array_view<const float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
         array_view<const float> output_layer_bias = output_layer.bias_view_;
+        array_view<const float, 4> output_layer_weights = output_layer.weights_view_;
 
         array_view<const int, 3> bottom_layer_active = bottom_layer.active_view_;
 
@@ -609,9 +610,33 @@ namespace deep_learning_lib
             }
         });
 
+        // non-tiled version
+        parallel_for_each(output_layer_value.extent,
+            [=](index<1> idx) restrict(amp)
+        {
+            float result = output_layer_bias[idx];
+
+            const auto& weights = output_layer_weights[idx[0]];
+
+            for (int depth_idx = 0; depth_idx < top_layer_value.extent[0]; depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < top_layer_value.extent[1]; height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < top_layer_value.extent[2]; width_idx++)
+                    {
+                        result += top_layer_value(depth_idx, height_idx, width_idx) 
+                            * weights(depth_idx, height_idx, width_idx);
+                    }
+                }
+            }
+
+            output_layer_value[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+        });
+
 #ifdef DEBUG_SYNC
         bottom_layer_value.synchronize();
         bottom_layer_expect.synchronize();
+        output_layer_value.synchronize();
 #endif
     }
 
@@ -689,6 +714,99 @@ namespace deep_learning_lib
             }
 
             hbias[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
+        });
+
+#ifdef DEBUG_SYNC
+        weights.synchronize();
+        vbias.synchronize();
+        hbias.synchronize();
+#endif
+    }
+
+    void ConvolveLayer::Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
+        float learning_rate, bool buffered_update)
+    {
+        array_view<float, 4> weights = buffered_update ? weights_delta_ : weights_view_;
+        array_view<float> vbias = buffered_update ? vbias_delta_ : vbias_view_;
+        array_view<float> hbias = buffered_update ? hbias_delta_ : hbias_view_;
+        array_view<float, 4> output_weights = buffered_update ? output_layer.weights_delta_ : output_layer.weights_view_;
+        array_view<float> output_bias = buffered_update ? output_layer.bias_delta_ : output_layer.bias_view_;
+
+        array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
+        array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
+        array_view<const float, 3> bottom_layer_value = bottom_layer.value_view_;
+        array_view<const float, 3> bottom_layer_next_value = bottom_layer.next_value_view_;
+        array_view<const float> output_layer_value = output_layer.outputs_view_;
+        array_view<const float> output_layer_next_value = output_layer.next_outputs_view_;
+
+        // non-tiled version
+        parallel_for_each(weights.extent, [=](index<4> idx) restrict(amp)
+        {
+            float delta = 0.0f;
+
+            int neuron_idx = idx[0];
+
+            for (int top_height_idx = 0; top_height_idx < top_layer_expect.extent[1]; top_height_idx++)
+            {
+                for (int top_width_idx = 0; top_width_idx < top_layer_expect.extent[2]; top_width_idx++)
+                {
+                    float top_expect = top_layer_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float top_next_expect = top_layer_next_expect(neuron_idx, top_height_idx, top_width_idx);
+
+                    float bottom_value = bottom_layer_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
+                    float bottom_next_value = bottom_layer_next_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
+
+                    delta += bottom_value * top_expect - bottom_next_value * top_next_expect;
+                }
+            }
+
+            weights[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
+        });
+
+        parallel_for_each(vbias.extent, [=](index<1> idx) restrict(amp)
+        {
+            float delta = 0.0f;
+
+            int depth_idx = idx[0];
+
+            for (int bottom_height_idx = 0; bottom_height_idx < bottom_layer_value.extent[1]; bottom_height_idx++)
+            {
+                for (int bottom_width_idx = 0; bottom_width_idx < bottom_layer_value.extent[2]; bottom_width_idx++)
+                {
+                    float bottom_value = bottom_layer_value(depth_idx, bottom_height_idx, bottom_width_idx);
+                    float bottom_next_value = bottom_layer_next_value(depth_idx, bottom_height_idx, bottom_width_idx);
+
+                    delta += bottom_value - bottom_next_value;
+                }
+            }
+
+            vbias[idx] += delta / (bottom_layer_value.extent[1] * bottom_layer_value.extent[2]) * learning_rate;
+        });
+
+        parallel_for_each(hbias.extent, [=](index<1> idx) restrict(amp)
+        {
+            float delta = 0.0f;
+
+            int neuron_idx = idx[0];
+
+            for (int top_height_idx = 0; top_height_idx < top_layer_expect.extent[1]; top_height_idx++)
+            {
+                for (int top_width_idx = 0; top_width_idx < top_layer_expect.extent[2]; top_width_idx++)
+                {
+                    float top_expect = top_layer_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float top_next_expect = top_layer_next_expect(neuron_idx, top_height_idx, top_width_idx);
+
+                    delta += top_expect - top_next_expect;
+                }
+            }
+
+            hbias[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
+        });
+
+        // for output layer
+        parallel_for_each(output_weights.extent, [=](index<4> idx) restrict(amp)
+        {
+
         });
 
 #ifdef DEBUG_SYNC
