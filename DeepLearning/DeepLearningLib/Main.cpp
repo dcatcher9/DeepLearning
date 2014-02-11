@@ -84,12 +84,25 @@ void TestRBM()
     int row_len = std::stoi(headers[1]);
 
     std::vector<const std::vector<float>> data;
+    std::vector<const int> labels;
     data.reserve(row_count);
+    labels.reserve(row_count);
 
     while (std::getline(ifs, line))
     {
-        auto bits = from(split(line, " ", false)) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
-        data.emplace_back(bits);
+        auto bits = split(line, " ", false);
+        auto data_bits = from(bits) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        auto label_bits = from(bits) >> skip(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        
+        data.emplace_back(data_bits);
+        for (int i = 0; i < label_bits.size(); i++)
+        {
+            if (label_bits[i] == 1.0f)
+            {
+                labels.emplace_back(i);
+                break;
+            }
+        }
     }
 
     DeepModel model;
@@ -97,20 +110,21 @@ void TestRBM()
     model.AddDataLayer(256, 1, 1);
     model.AddConvolveLayer(100, 256, 1, 1);
     model.AddDataLayer(100, 1, 1, 2);
+    model.AddOutputLayer(1, 10);
 
     /*for (int i = 0; i < 1000; i++)
     {
-        float err = model.TrainLayer(data.front(), 0, 0.1f);
+        float err = model.TrainLayer(data.front(), labels.front(), 0, 0.1f, 0.5f);
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
-    model.TrainLayer(data, 0, 5, 0.1f, 0.5f, 1000);
+    model.TrainLayer(data, labels, 0, 5, 0.1f, 0.5f, 1000);
 
     model.GenerateImages("model_dump");
 }
 
 void main()
 {
-    TestUSPS();
-    //TestRBM();
+    //TestUSPS();
+    TestRBM();
 }

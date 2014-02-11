@@ -1,6 +1,7 @@
 #include "DeepModel.h"
 
 #include <array>
+#include <tuple>
 #include <assert.h>
 #include <random>
 #include <amp_math.h>
@@ -195,11 +196,11 @@ namespace deep_learning_lib
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    OutputLayer::OutputLayer(int input_depth, int input_height, int input_width, int output_num)
+    OutputLayer::OutputLayer(int output_num, int input_depth, int input_height, int input_width)
         : outputs_(output_num),
         outputs_view_(output_num, outputs_),
         next_outputs_(output_num),
-        next_outputs_view_(output_num),
+        next_outputs_view_(output_num, next_outputs_),
         bias_(output_num),
         bias_view_(output_num, bias_),
         bias_delta_(bias_view_.extent),
@@ -237,10 +238,10 @@ namespace deep_learning_lib
 
     }
 
-    void OutputLayer::SetLabel(int index)
+    void OutputLayer::SetLabel(const int label)
     {
-        std::fill(outputs_.begin(), outputs_.end(), 0);
-        outputs_[index] = 1.0f;
+        std::fill(outputs_.begin(), outputs_.end(), 0.0f);
+        outputs_[label] = 1.0f;
 
         outputs_view_.refresh();
     }
@@ -282,6 +283,85 @@ namespace deep_learning_lib
 
         weights_view_.discard_data();
         weights_view_.refresh();
+    }
+
+    bitmap_image OutputLayer::GenerateImage() const
+    {
+        weights_view_.synchronize();
+        bias_view_.synchronize();
+        
+        bitmap_image image;
+
+        const int block_size = 2;
+
+        float max_abs_weight = std::numeric_limits<float>::min();
+        for (float weight : weights_)
+        {
+            max_abs_weight = std::max(max_abs_weight, std::abs(weight));
+        }
+
+        float max_abs_bias = std::numeric_limits<float>::min();
+        for (float bias : bias_)
+        {
+            max_abs_bias = std::max(max_abs_bias, std::abs(bias));
+        }
+
+        if (input_width() == 1 && input_height() == 1)
+        {
+            image.setwidth_height((2 + input_depth()) * (block_size + 1), (2 + output_num()) * (block_size + 1), true);
+
+            for (int i = 0; i < bias_.size(); i++)
+            {
+                image.set_region((2 + i) * (block_size + 1), 0, block_size, block_size,
+                    bias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(std::abs(bias_[i]) / max_abs_bias * 255.0));
+            }
+
+            for (int output_idx = 0; output_idx < output_num(); output_idx++)
+            {
+                for (int depth_idx = 0; depth_idx < input_depth(); depth_idx++)
+                {
+                    float value = weights_[output_idx * input_depth() + depth_idx];
+                    image.set_region((2 + depth_idx) * (block_size + 1), (2 + output_idx) * (block_size + 1), block_size, block_size,
+                        value >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                        static_cast<unsigned char>(std::abs(value) / max_abs_weight * 255.0));
+                }
+            }
+        }
+        else
+        {
+            image.setwidth_height((2 + input_depth() * (input_width() + 1)) * (block_size + 1),
+                (2 + output_num() * (input_height() + 1)) * (block_size + 1), true);
+
+            for (int i = 0; i < bias_.size(); i++)
+            {
+                image.set_region((2 + input_width() / 2 + (input_width() + 1) * i) * (block_size + 1), 0, block_size, block_size,
+                    bias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(std::abs(bias_[i]) / max_abs_bias * 255.0));
+            }
+
+            for (int output_idx = 0; output_idx < output_num(); output_idx++)
+            {
+                for (int depth_idx = 0; depth_idx < input_depth(); depth_idx++)
+                {
+                    for (int height_idx = 0; height_idx < input_height(); height_idx++)
+                    {
+                        for (int width_idx = 0; width_idx < input_width(); width_idx++)
+                        {
+                            float value = weights_[output_idx * input_depth() * input_height() * input_width()
+                                + depth_idx * input_height() * input_width() + height_idx * input_width() + width_idx];
+
+                            image.set_region((2 + width_idx + depth_idx * (input_width() + 1)) * (block_size + 1),
+                                (2 + output_idx * (input_height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
+                                value >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                                static_cast<unsigned char>(std::abs(value) / max_abs_weight * 255.0));
+                        }
+                    }
+                }
+            }
+        }
+
+        return image;
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -806,13 +886,26 @@ namespace deep_learning_lib
         // for output layer
         parallel_for_each(output_weights.extent, [=](index<4> idx) restrict(amp)
         {
+            float delta = output_layer_value(idx[0]) * top_layer_expect(idx[1], idx[2], idx[3]) - 
+                output_layer_next_value(idx[0]) * top_layer_next_expect(idx[1], idx[2], idx[3]);
 
+            output_weights[idx] += delta * learning_rate;
+
+        });
+
+        parallel_for_each(output_bias.extent, [=](index<1> idx) restrict(amp)
+        {
+            float delta = output_layer_value[idx] - output_layer_next_value[idx];
+
+            output_bias[idx] += delta * learning_rate;
         });
 
 #ifdef DEBUG_SYNC
         weights.synchronize();
         vbias.synchronize();
         hbias.synchronize();
+        output_bias.synchronize();
+        output_weights.synchronize();
 #endif
     }
 
@@ -1080,6 +1173,16 @@ namespace deep_learning_lib
         convolve_layers_.back().RandomizeParams(rand_seed);
     }
 
+    void DeepModel::AddOutputLayer(int data_layer_idx, int output_num, unsigned int seed)
+    {
+        auto& data_layer = data_layers_[data_layer_idx];
+
+        output_layers_.emplace(std::piecewise_construct, std::forward_as_tuple(data_layer_idx),
+            std::forward_as_tuple(output_num, data_layer.depth(), data_layer.height(), data_layer.width()));
+
+        output_layers_.at(data_layer_idx).RandomizeParams(seed);
+    }
+
     void DeepModel::PassUp(const std::vector<float>& data)
     {
         auto& bottom_layer = data_layers_.front();
@@ -1135,6 +1238,27 @@ namespace deep_learning_lib
         return bottom_layer.ReconstructionError();
     }
 
+    float DeepModel::TrainLayer(const std::vector<float>& data, const int label, int layer_idx, float learning_rate, float dropout_prob)
+    {
+        auto& bottom_layer = data_layers_[layer_idx];
+        auto& top_layer = data_layers_[layer_idx + 1];
+        auto& conv_layer = convolve_layers_[layer_idx];
+        auto& output_layer = output_layers_.at(layer_idx + 1);
+
+        // train with contrastive divergence (CD) algorithm to maximize likelihood on dataset
+        bottom_layer.SetValue(data);
+        top_layer.Activate(1.0f - dropout_prob);
+        output_layer.SetLabel(label);
+
+        conv_layer.PassUp(bottom_layer, true, output_layer, true, top_layer, true);
+        conv_layer.PassDown(top_layer, true, bottom_layer, false, output_layer, false);
+        conv_layer.PassUp(bottom_layer, false, output_layer, false, top_layer, false);
+
+        conv_layer.Train(bottom_layer, output_layer, top_layer, learning_rate, false);
+
+        return bottom_layer.ReconstructionError();
+    }
+
     void DeepModel::TrainLayer(const std::vector<const std::vector<float>>& dataset,
         int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count)
     {
@@ -1167,6 +1291,45 @@ namespace deep_learning_lib
         }
     }
 
+    void DeepModel::TrainLayer(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
+        int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count)
+    {
+        assert(dataset.size() == labels.size());
+
+        std::uniform_int_distribution<int> uniform_dist(0, (int)dataset.size() - 1);
+
+        auto& bottom_layer = data_layers_[layer_idx];
+        auto& top_layer = data_layers_[layer_idx + 1];
+        auto& conv_layer = convolve_layers_[layer_idx];
+        auto& output_layer = output_layers_.at(layer_idx + 1);
+
+        for (int iter = 0; iter < iter_count; iter++)
+        {
+            top_layer.Activate(1.0f - dropout_prob);
+            // sample mini-batch, sample with replacement
+            for (int mini_batch_idx = 0; mini_batch_idx < mini_batch_size; mini_batch_idx++)
+            {
+                int data_idx = uniform_dist(random_engine_);
+                auto& data = dataset[data_idx];
+                int label = labels[data_idx];
+
+                bottom_layer.SetValue(data);
+                output_layer.SetLabel(label);
+
+                conv_layer.PassUp(bottom_layer, true, output_layer, true, top_layer, true);
+                conv_layer.PassDown(top_layer, true, bottom_layer, false, output_layer, false);
+                conv_layer.PassUp(bottom_layer, false, output_layer, false, top_layer, false);
+
+                conv_layer.Train(bottom_layer, output_layer, top_layer, learning_rate, true);
+            }
+
+            conv_layer.ApplyBufferedUpdate(mini_batch_size);
+            output_layer.ApplyBufferedUpdate(mini_batch_size);
+
+            std::cout << "iter = " << iter << "\t err = " << bottom_layer.ReconstructionError() << std::endl;
+        }
+    }
+
     void DeepModel::GenerateImages(const std::string& folder) const
     {
         for (int i = 0; i < data_layers_.size(); i++)
@@ -1177,6 +1340,11 @@ namespace deep_learning_lib
         for (int i = 0; i < convolve_layers_.size(); i++)
         {
             convolve_layers_[i].GenerateImage().save_image(folder + "\\layer" + std::to_string(i) + "_conv.bmp");
+        }
+
+        for (const auto& pair : output_layers_)
+        {
+            pair.second.GenerateImage().save_image(folder + "\\layer" + std::to_string(pair.first) + "_output.bmp");
         }
     }
 }
