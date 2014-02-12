@@ -45,13 +45,52 @@ void TestUSPS()
     int row_count = std::stoi(headers[0]);
     int row_len = std::stoi(headers[1]);
 
-    std::vector<const std::vector<float>> data;
-    data.reserve(row_count);
+    const float train_fraction = 0.8f;
+
+    std::vector<const std::vector<float>> train_data;
+    std::vector<const int> train_labels;
+
+    std::vector<const std::vector<float>> test_data;
+    std::vector<const int> test_labels;
+
+    train_data.reserve(row_count);
+    train_labels.reserve(row_count);
+    test_data.reserve(row_count);
+    test_labels.reserve(row_count);
+
+    std::default_random_engine generator;
+    std::uniform_real_distribution<float> rand;
 
     while (std::getline(ifs, line))
     {
-        auto bits = from(split(line, " ", false)) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
-        data.emplace_back(bits);
+        auto bits = split(line, " ", false);
+        auto data_bits = from(bits) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        auto label_bits = from(bits) >> skip(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+
+        if (rand(generator) < train_fraction)
+        {
+            train_data.emplace_back(data_bits);
+            for (int i = 0; i < label_bits.size(); i++)
+            {
+                if (label_bits[i] == 1.0f)
+                {
+                    train_labels.emplace_back(i);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            test_data.emplace_back(data_bits);
+            for (int i = 0; i < label_bits.size(); i++)
+            {
+                if (label_bits[i] == 1.0f)
+                {
+                    test_labels.emplace_back(i);
+                    break;
+                }
+            }
+        }
     }
 
     DeepModel model;
@@ -59,14 +98,22 @@ void TestUSPS()
     model.AddDataLayer(1, 16, 16, 1);
     model.AddConvolveLayer(20, 1, 8, 8);
     model.AddDataLayer(20, 9, 9, 2);
+    model.AddOutputLayer(1, 10);
 
     /*for (int i = 0; i < 1000; i++)
     {
         float err = model.TrainLayer(data.front(), 0, 0.1f);
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
+
+    for (int i = 0; i < 100; i++)
+    {
+        model.TrainLayer(train_data, train_labels, 0, 5, 0.1f, 0.5f, 10);
+        float precision = model.Evaluate(test_data, test_labels, 0);
+        std::cout << "Precision = " << precision << std::endl;
+    }
     
-    model.TrainLayer(data, 0, 5, 0.2f, 0.5f, 1100);
+    //model.TrainLayer(train_data, 0, 5, 0.2f, 0.5f, 1100);
 
     model.GenerateImages("model_dump");
 }
@@ -158,6 +205,6 @@ void TestRBM()
 
 void main()
 {
-    //TestUSPS();
-    TestRBM();
+    TestUSPS();
+    //TestRBM();
 }
