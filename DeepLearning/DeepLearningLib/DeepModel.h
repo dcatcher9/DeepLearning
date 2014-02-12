@@ -133,7 +133,7 @@ namespace deep_learning_lib
 
         int PredictLabel(const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher,
-            const ConvolveLayer& conv_layer);
+            const ConvolveLayer& conv_layer, const float dropout_prob);
 
         bitmap_image GenerateImage() const;
     };
@@ -256,9 +256,10 @@ namespace deep_learning_lib
         void TrainLayer(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
             int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
 
-        int PredictLabel(const std::vector<float>& data, const int layer_idx);
+        int PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob);
 
-        float Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels, int layer_idx);
+        float Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
+            int layer_idx, const float dropout_prob);
 
         void GenerateImages(const std::string& folder) const;
 

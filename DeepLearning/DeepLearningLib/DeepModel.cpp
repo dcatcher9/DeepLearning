@@ -287,7 +287,7 @@ namespace deep_learning_lib
 
     int OutputLayer::PredictLabel(const DataLayer& bottom_layer, bool bottom_switcher,
         DataLayer& top_layer, bool top_switcher,
-        const ConvolveLayer& conv_layer)
+        const ConvolveLayer& conv_layer, const float dropout_prob)
     {
         assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
         assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
@@ -341,7 +341,7 @@ namespace deep_learning_lib
                     {
                         float score = top_layer_value(depth_idx, height_idx, width_idx) 
                             + current_output_weights(depth_idx, height_idx, width_idx);
-                        result += fast_math::logf((fast_math::expf(score) + 3.0f) / 2);
+                        result += fast_math::logf((fast_math::expf(score) + 1.0f) * (1.0f - dropout_prob) + 2.0f * dropout_prob);
                     }
                 }
             }
@@ -1410,7 +1410,7 @@ namespace deep_learning_lib
         }
     }
 
-    int DeepModel::PredictLabel(const std::vector<float>& data, const int layer_idx)
+    int DeepModel::PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob)
     {
         auto& bottom_layer = data_layers_[layer_idx];
         auto& top_layer = data_layers_[layer_idx + 1];
@@ -1419,10 +1419,11 @@ namespace deep_learning_lib
 
         bottom_layer.SetValue(data);
         // top layer activation is ignored when predicting labels
-        return output_layer.PredictLabel(bottom_layer, true, top_layer, true, conv_layer);
+        return output_layer.PredictLabel(bottom_layer, true, top_layer, true, conv_layer, dropout_prob);
     }
 
-    float DeepModel::Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels, int layer_idx)
+    float DeepModel::Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
+        int layer_idx, const float dropout_prob)
     {
         assert(dataset.size() == labels.size());
 
@@ -1430,7 +1431,7 @@ namespace deep_learning_lib
 
         for (int i = 0; i < dataset.size(); i++)
         {
-            int predicted_label = PredictLabel(dataset[i], layer_idx);
+            int predicted_label = PredictLabel(dataset[i], layer_idx, dropout_prob);
             if (predicted_label == labels[i])
             {
                 correct_count++;
