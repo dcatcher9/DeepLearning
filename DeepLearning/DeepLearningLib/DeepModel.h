@@ -79,6 +79,8 @@ namespace deep_learning_lib
         bitmap_image GenerateImage() const;
     };
 
+    class ConvolveLayer;
+
     // Currently support 1-of-N classifier output.
     // It contains both data and weight parameters. 
     // Support both discriminative and generative training.
@@ -128,6 +130,10 @@ namespace deep_learning_lib
         void ApplyBufferedUpdate(int buffer_size);
 
         void RandomizeParams(unsigned int seed);
+
+        int PredictLabel(const DataLayer& bottom_layer, bool bottom_switcher,
+            DataLayer& top_layer, bool top_switcher,
+            const ConvolveLayer& conv_layer);
 
         bitmap_image GenerateImage() const;
     };
@@ -249,6 +255,10 @@ namespace deep_learning_lib
             int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
         void TrainLayer(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
             int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
+
+        int PredictLabel(const std::vector<float>& data, const int layer_idx);
+
+        float Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels, int layer_idx);
 
         void GenerateImages(const std::string& folder) const;
 

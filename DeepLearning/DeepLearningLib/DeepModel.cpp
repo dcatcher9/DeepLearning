@@ -285,6 +285,86 @@ namespace deep_learning_lib
         weights_view_.refresh();
     }
 
+    int OutputLayer::PredictLabel(const DataLayer& bottom_layer, bool bottom_switcher,
+        DataLayer& top_layer, bool top_switcher,
+        const ConvolveLayer& conv_layer)
+    {
+        assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
+        assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
+        assert(top_layer.height() == bottom_layer.height() - conv_layer.neuron_height() + 1 && top_layer.height() == this->input_height());
+
+        // read only
+        array_view<const float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<const float, 4> neuron_weights = conv_layer.weights_view_;
+        array_view<const float> hbias = conv_layer.hbias_view_;
+        array_view<const float> output_bias = this->bias_view_;
+        array_view<const float, 4> output_weights = this->weights_view_;
+
+        // read write
+        array_view<float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<float> outputs = this->outputs_view_;
+
+        // calculate base score, ignore top layer activation
+        parallel_for_each(top_layer_value.extent, [=](index<3> idx) restrict(amp)
+        {
+            array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
+            index<3> base_idx(0, idx[1], idx[2]);
+
+            float result = hbias[idx[0]];
+
+            for (int depth_idx = 0; depth_idx < current_neuron.extent[0]; depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < current_neuron.extent[1]; height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < current_neuron.extent[2]; width_idx++)
+                    {
+                        index<3> neuron_idx(depth_idx, height_idx, width_idx);
+                        result += bottom_layer_value[base_idx + neuron_idx] * current_neuron[neuron_idx];
+                    }
+                }
+            }
+
+            top_layer_value[idx] = result;
+        });
+
+        parallel_for_each(outputs.extent, [=](index<1> idx) restrict(amp)
+        {
+            float result = output_bias[idx];
+
+            auto& current_output_weights = output_weights[idx[0]];
+
+            for (int depth_idx = 0; depth_idx < top_layer_value.extent[0]; depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < top_layer_value.extent[1]; height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < top_layer_value.extent[2]; width_idx++)
+                    {
+                        float score = top_layer_value(depth_idx, height_idx, width_idx) 
+                            + current_output_weights(depth_idx, height_idx, width_idx);
+                        result += fast_math::logf((fast_math::expf(score) + 3.0f) / 2);
+                    }
+                }
+            }
+
+            outputs[idx] = result;
+        });
+
+        outputs.synchronize();
+        int max_idx = 0;
+        float max_value = outputs_[max_idx];
+
+        for (int i = 1; i < outputs_.size(); i++)
+        {
+            if (outputs_[i] > max_value)
+            {
+                max_value = outputs_[i];
+                max_idx = i;
+            }
+        }
+
+        return max_idx;;
+    }
+
     bitmap_image OutputLayer::GenerateImage() const
     {
         weights_view_.synchronize();
@@ -1328,6 +1408,36 @@ namespace deep_learning_lib
 
             std::cout << "iter = " << iter << "\t err = " << bottom_layer.ReconstructionError() << std::endl;
         }
+    }
+
+    int DeepModel::PredictLabel(const std::vector<float>& data, const int layer_idx)
+    {
+        auto& bottom_layer = data_layers_[layer_idx];
+        auto& top_layer = data_layers_[layer_idx + 1];
+        auto& conv_layer = convolve_layers_[layer_idx];
+        auto& output_layer = output_layers_.at(layer_idx + 1);
+
+        bottom_layer.SetValue(data);
+        // top layer activation is ignored when predicting labels
+        return output_layer.PredictLabel(bottom_layer, true, top_layer, true, conv_layer);
+    }
+
+    float DeepModel::Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels, int layer_idx)
+    {
+        assert(dataset.size() == labels.size());
+
+        float correct_count = 0.0f;
+
+        for (int i = 0; i < dataset.size(); i++)
+        {
+            int predicted_label = PredictLabel(dataset[i], layer_idx);
+            if (predicted_label == labels[i])
+            {
+                correct_count++;
+            }
+        }
+
+        return correct_count / labels.size();
     }
 
     void DeepModel::GenerateImages(const std::string& folder) const

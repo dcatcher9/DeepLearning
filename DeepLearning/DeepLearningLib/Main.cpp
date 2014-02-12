@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <random>
 
 #include "cpplinq.hpp"
 
@@ -83,10 +84,21 @@ void TestRBM()
     int row_count = std::stoi(headers[0]);
     int row_len = std::stoi(headers[1]);
 
-    std::vector<const std::vector<float>> data;
-    std::vector<const int> labels;
-    data.reserve(row_count);
-    labels.reserve(row_count);
+    const float train_fraction = 0.8f;
+
+    std::vector<const std::vector<float>> train_data;
+    std::vector<const int> train_labels;
+
+    std::vector<const std::vector<float>> test_data;
+    std::vector<const int> test_labels;
+
+    train_data.reserve(row_count);
+    train_labels.reserve(row_count);
+    test_data.reserve(row_count);
+    test_labels.reserve(row_count);
+
+    std::default_random_engine generator;
+    std::uniform_real_distribution<float> rand;
 
     while (std::getline(ifs, line))
     {
@@ -94,13 +106,28 @@ void TestRBM()
         auto data_bits = from(bits) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
         auto label_bits = from(bits) >> skip(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
         
-        data.emplace_back(data_bits);
-        for (int i = 0; i < label_bits.size(); i++)
+        if (rand(generator) < train_fraction)
         {
-            if (label_bits[i] == 1.0f)
+            train_data.emplace_back(data_bits);
+            for (int i = 0; i < label_bits.size(); i++)
             {
-                labels.emplace_back(i);
-                break;
+                if (label_bits[i] == 1.0f)
+                {
+                    train_labels.emplace_back(i);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            test_data.emplace_back(data_bits);
+            for (int i = 0; i < label_bits.size(); i++)
+            {
+                if (label_bits[i] == 1.0f)
+                {
+                    test_labels.emplace_back(i);
+                    break;
+                }
             }
         }
     }
@@ -118,7 +145,13 @@ void TestRBM()
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
-    model.TrainLayer(data, labels, 0, 5, 0.1f, 0.5f, 1000);
+    for (int i = 0; i < 100; i++)
+    {
+        model.TrainLayer(train_data, train_labels, 0, 5, 0.1f, 0.5f, 10);
+        float precision = model.Evaluate(test_data, test_labels, 0);
+        std::cout << "Precision = " << precision << std::endl;
+    }
+    
 
     model.GenerateImages("model_dump");
 }
