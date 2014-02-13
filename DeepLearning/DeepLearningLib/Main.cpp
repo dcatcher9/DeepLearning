@@ -133,7 +133,7 @@ void TestRBM()
     int row_count = std::stoi(headers[0]);
     int row_len = std::stoi(headers[1]);
 
-    const float train_fraction = 0.8f;
+    const float train_fraction = 0.9f;
 
     std::vector<const std::vector<float>> train_data;
     std::vector<const int> train_labels;
@@ -194,11 +194,11 @@ void TestRBM()
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
-    const float dropout_prob = 0.6f;
+    const float dropout_prob = 0.3f;
 
-    for (int i = 0; i < 150; i++)
+    for (int i = 0; i < 500; i++)
     {
-        model.TrainLayer(train_data, train_labels, 0, 5, 0.2f, dropout_prob, 10);
+        model.TrainLayer(train_data, train_labels, 0, 10, 0.5f, dropout_prob, 10);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "Precision = " << precision << std::endl;
     }

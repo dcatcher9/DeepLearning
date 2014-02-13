@@ -1351,10 +1351,11 @@ namespace deep_learning_lib
 
         for (int iter = 0; iter < iter_count; iter++)
         {
-            top_layer.Activate(1.0f - dropout_prob);
             // sample mini-batch, sample with replacement
             for (int mini_batch_idx = 0; mini_batch_idx < mini_batch_size; mini_batch_idx++)
             {
+                top_layer.Activate(1.0f - dropout_prob);
+
                 auto& data = dataset[uniform_dist(random_engine_)];
                 bottom_layer.SetValue(data);
 
@@ -1385,10 +1386,11 @@ namespace deep_learning_lib
 
         for (int iter = 0; iter < iter_count; iter++)
         {
-            top_layer.Activate(1.0f - dropout_prob);
             // sample mini-batch, sample with replacement
             for (int mini_batch_idx = 0; mini_batch_idx < mini_batch_size; mini_batch_idx++)
             {
+                top_layer.Activate(1.0f - dropout_prob);
+
                 int data_idx = uniform_dist(random_engine_);
                 auto& data = dataset[data_idx];
                 int label = labels[data_idx];
