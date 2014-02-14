@@ -96,8 +96,8 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16, 1);
-    model.AddConvolveLayer(20, 1, 8, 8);
-    model.AddDataLayer(20, 9, 9, 2);
+    model.AddConvolveLayer(600, 1, 16, 16);
+    model.AddDataLayer(600, 1, 1, 2);
     model.AddOutputLayer(1, 10);
 
     /*for (int i = 0; i < 1000; i++)
@@ -108,9 +108,9 @@ void TestUSPS()
 
     const float dropout_prob = 0.5f;
 
-    for (int i = 0; i < 150; i++)
+    for (int i = 0; i < 500; i++)
     {
-        model.TrainLayer(train_data, train_labels, 0, 20, 0.1f, dropout_prob, 10);
+        model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "Precision = " << precision << std::endl;
     }
@@ -194,11 +194,11 @@ void TestRBM()
         std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
-    const float dropout_prob = 0.3f;
+    const float dropout_prob = 0.5f;
 
     for (int i = 0; i < 500; i++)
     {
-        model.TrainLayer(train_data, train_labels, 0, 10, 0.5f, dropout_prob, 10);
+        model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "Precision = " << precision << std::endl;
     }
