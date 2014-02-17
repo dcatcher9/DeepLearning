@@ -12,31 +12,34 @@
     <Filter Include="Data Files">
       <UniqueIdentifier>{9a36fae3-e8aa-4cfe-9eae-5f8fe7225ccc}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Tools">
+      <UniqueIdentifier>{32c7b21f-ab8f-4056-915c-95db66c0a66e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DeepModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="amp_rand_collection.h">
-      <Filter>Header Files</Filter>
+      <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="amp_sobol_rng.h">
-      <Filter>Header Files</Filter>
+      <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="amp_tinymt_rng.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="xxamp_sobol_rng.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="xxamp_tinymt_precalc_dc.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="cpplinq.hpp">
-      <Filter>Header Files</Filter>
+      <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="bitmap_image.hpp">
-      <Filter>Header Files</Filter>
+      <Filter>Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="cpplinq.hpp">
+      <Filter>Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="xxamp_sobol_rng.h">
+      <Filter>Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="xxamp_tinymt_precalc_dc.h">
+      <Filter>Tools</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
