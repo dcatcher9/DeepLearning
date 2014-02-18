@@ -365,6 +365,49 @@ namespace deep_learning_lib
         return max_idx;;
     }
 
+    void OutputLayer::PassDown(const DataLayer& top_layer, bool top_switcher, bool output_switcher)
+    {
+        assert(top_layer.depth() == this->input_depth());
+        assert(top_layer.width() == this->input_width());
+        assert(top_layer.height() == this->input_height());
+
+        // readonly
+        array_view<const float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<const float> output_layer_bias = bias_view_;
+        array_view<const float, 4> output_layer_weights = weights_view_;
+
+        // writeonly
+        array_view<float> output_layer_value = output_switcher ? outputs_view_ : next_outputs_view_;
+        output_layer_value.discard_data();
+
+        // non-tiled version
+        parallel_for_each(output_layer_value.extent,
+            [=](index<1> idx) restrict(amp)
+        {
+            float result = output_layer_bias[idx];
+
+            const auto& weights = output_layer_weights[idx[0]];
+
+            for (int depth_idx = 0; depth_idx < top_layer_value.extent[0]; depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < top_layer_value.extent[1]; height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < top_layer_value.extent[2]; width_idx++)
+                    {
+                        result += top_layer_value(depth_idx, height_idx, width_idx)
+                            * weights(depth_idx, height_idx, width_idx);
+                    }
+                }
+            }
+
+            output_layer_value[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+        });
+
+#ifdef DEBUG_SYNC
+        output_layer_value.synchronize();
+#endif
+    }
+
     bitmap_image OutputLayer::GenerateImage() const
     {
         weights_view_.synchronize();
@@ -884,7 +927,7 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
-        float learning_rate, bool buffered_update)
+        float learning_rate, bool buffered_update, bool discriminative)
     {
         array_view<float, 4> weights = buffered_update ? weights_delta_ : weights_view_;
         array_view<float> vbias = buffered_update ? vbias_delta_ : vbias_view_;
@@ -895,7 +938,7 @@ namespace deep_learning_lib
         array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
         array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
         array_view<const float, 3> bottom_layer_value = bottom_layer.value_view_;
-        array_view<const float, 3> bottom_layer_next_value = bottom_layer.next_value_view_;
+        array_view<const float, 3> bottom_layer_next_value = discriminative ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
         array_view<const float> output_layer_value = output_layer.outputs_view_;
         array_view<const float> output_layer_next_value = output_layer.next_outputs_view_;
 
@@ -1318,7 +1361,8 @@ namespace deep_learning_lib
         return bottom_layer.ReconstructionError();
     }
 
-    float DeepModel::TrainLayer(const std::vector<float>& data, const int label, int layer_idx, float learning_rate, float dropout_prob)
+    float DeepModel::TrainLayer(const std::vector<float>& data, const int label, int layer_idx,
+        float learning_rate, float dropout_prob, bool discriminative)
     {
         auto& bottom_layer = data_layers_[layer_idx];
         auto& top_layer = data_layers_[layer_idx + 1];
@@ -1331,10 +1375,19 @@ namespace deep_learning_lib
         output_layer.SetLabel(label);
 
         conv_layer.PassUp(bottom_layer, true, output_layer, true, top_layer, true);
-        conv_layer.PassDown(top_layer, true, bottom_layer, false, output_layer, false);
-        conv_layer.PassUp(bottom_layer, false, output_layer, false, top_layer, false);
 
-        conv_layer.Train(bottom_layer, output_layer, top_layer, learning_rate, false);
+        if (discriminative)
+        {
+            output_layer.PassDown(top_layer, true, false);
+            conv_layer.PassUp(bottom_layer, true, output_layer, false, top_layer, false);
+        }
+        else
+        {
+            conv_layer.PassDown(top_layer, true, bottom_layer, false, output_layer, false);
+            conv_layer.PassUp(bottom_layer, false, output_layer, false, top_layer, false);
+        }
+        
+        conv_layer.Train(bottom_layer, output_layer, top_layer, learning_rate, false, discriminative);
 
         return bottom_layer.ReconstructionError();
     }
@@ -1373,11 +1426,11 @@ namespace deep_learning_lib
     }
 
     void DeepModel::TrainLayer(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
-        int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count)
+        int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count, bool discriminative)
     {
         assert(dataset.size() == labels.size());
 
-        std::uniform_int_distribution<int> uniform_dist(0, (int)dataset.size() - 1);
+        std::uniform_int_distribution<int> dataset_uniform_dist(0, (int)dataset.size() - 1);
 
         auto& bottom_layer = data_layers_[layer_idx];
         auto& top_layer = data_layers_[layer_idx + 1];
@@ -1391,7 +1444,7 @@ namespace deep_learning_lib
             {
                 top_layer.Activate(1.0f - dropout_prob);
 
-                int data_idx = uniform_dist(random_engine_);
+                int data_idx = dataset_uniform_dist(random_engine_);
                 auto& data = dataset[data_idx];
                 int label = labels[data_idx];
 
@@ -1399,16 +1452,24 @@ namespace deep_learning_lib
                 output_layer.SetLabel(label);
 
                 conv_layer.PassUp(bottom_layer, true, output_layer, true, top_layer, true);
-                conv_layer.PassDown(top_layer, true, bottom_layer, false, output_layer, false);
-                conv_layer.PassUp(bottom_layer, false, output_layer, false, top_layer, false);
-
-                conv_layer.Train(bottom_layer, output_layer, top_layer, learning_rate, true);
+                if (discriminative)
+                {
+                    output_layer.PassDown(top_layer, true, false);
+                    conv_layer.PassUp(bottom_layer, true, output_layer, false, top_layer, false);
+                }
+                else
+                {
+                    conv_layer.PassDown(top_layer, true, bottom_layer, false, output_layer, false);
+                    conv_layer.PassUp(bottom_layer, false, output_layer, false, top_layer, false);
+                }
+                
+                conv_layer.Train(bottom_layer, output_layer, top_layer, learning_rate, true, discriminative);
             }
 
             conv_layer.ApplyBufferedUpdate(mini_batch_size);
             output_layer.ApplyBufferedUpdate(mini_batch_size);
 
-            std::cout << "iter = " << iter << "\t err = " << bottom_layer.ReconstructionError() << std::endl;
+            std::cout << (discriminative ? "[D]" : "[G]") << "iter = " << iter << "\t err = " << bottom_layer.ReconstructionError() << std::endl;
         }
     }
 

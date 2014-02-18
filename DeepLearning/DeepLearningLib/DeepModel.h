@@ -135,6 +135,8 @@ namespace deep_learning_lib
             DataLayer& top_layer, bool top_switcher,
             const ConvolveLayer& conv_layer, const float dropout_prob);
 
+        void PassDown(const DataLayer& top_layer, bool top_switcher, bool output_switcher);
+
         bitmap_image GenerateImage() const;
     };
 
@@ -203,7 +205,7 @@ namespace deep_learning_lib
             float learning_rate, bool buffered_update);
 
         void Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
-            float learning_rate, bool buffered_update);
+            float learning_rate, bool buffered_update, bool discriminative = false);
 
         void ApplyBufferedUpdate(int buffer_size);
 
@@ -249,12 +251,13 @@ namespace deep_learning_lib
         void PassDown();
 
         float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob);
-        float TrainLayer(const std::vector<float>& data, const int label, int layer_idx, float learning_rate, float dropout_prob);
+        float TrainLayer(const std::vector<float>& data, const int label, int layer_idx,
+            float learning_rate, float dropout_prob, bool discriminative = false);
 
         void TrainLayer(const std::vector<const std::vector<float>>& dataset,
             int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
         void TrainLayer(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
-            int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
+            int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count, bool discriminative = false);
 
         int PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob);
 
