@@ -26,10 +26,17 @@ namespace deep_learning_lib
         active_view_(value_view_.extent, active_),
         rand_collection_(value_view_.extent, seed)
     {
-        memory_.reserve(kMemorySize);
+        memory_pool_.reserve(kMemorySize);
         for (int i = 0; i < kMemorySize; i++)
         {
-            memory_.emplace_back(value_view_.extent);
+            memory_pool_.emplace_back(value_view_.extent);
+            auto& memory = memory_pool_.back();
+
+            parallel_for_each(memory.extent, 
+                [&](index<3> idx) restrict(amp)
+            {
+                memory[idx] = 0.0f;
+            });
         }
     }
 
@@ -45,7 +52,7 @@ namespace deep_learning_lib
         active_prob_(other.active_prob_),
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
-        memory_(std::move(other.memory_)),
+        memory_pool_(std::move(other.memory_pool_)),
         rand_collection_(other.rand_collection_)
     {
 
@@ -94,6 +101,35 @@ namespace deep_learning_lib
         }
 
         return std::sqrtf(result);
+    }
+
+    void DataLayer::Memorize()
+    {
+        value_view_.synchronize();
+
+        // Replace the most similar memory in the pool
+        // TODO: replace with atomic_fetch_add or reduce to calc the sum for perf improvement
+        std::vector<float> memory(value_.size());
+        float min_diff = std::numeric_limits<float>::max();
+        float min_idx = -1;
+
+        for (int i = 0; i < memory_pool_.size(); i++)
+        {
+            copy(memory_pool_[i], memory.begin());
+            float diff = 0.0f;
+            for (int j = 0; j < memory.size(); j++)
+            {
+                diff += std::powf(memory[j] - value_[i], 2);
+            }
+            diff = std::sqrtf(diff);
+            if (diff < min_diff)
+            {
+                min_diff = diff;
+                min_idx = i;
+            }
+        }
+
+        value_view_.copy_to(memory_pool_[min_idx]);
     }
 
     bitmap_image DataLayer::GenerateImage() const

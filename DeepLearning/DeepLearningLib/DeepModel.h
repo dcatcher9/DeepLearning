@@ -46,8 +46,8 @@ namespace deep_learning_lib
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
         
-        // seen data vectors, only lives in GPU
-        std::vector<concurrency::array<float, 3>> memory_;
+        // seen data vectors, lives in GPU
+        std::vector<concurrency::array<float, 3>> memory_pool_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -75,6 +75,8 @@ namespace deep_learning_lib
         void Activate(float probability = 1.0f);
 
         float ReconstructionError() const;
+
+        void Memorize();
 
         bitmap_image GenerateImage() const;
     };
