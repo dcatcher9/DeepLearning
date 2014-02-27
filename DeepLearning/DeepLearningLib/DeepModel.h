@@ -36,9 +36,10 @@ namespace deep_learning_lib
 
         float active_prob_;
         std::vector<int>    active_;
+
+        std::vector<float> memory_pool_;
         
     public:
-        const int kMemorySize = 3;
         concurrency::array_view<float, 3>   value_view_;
         concurrency::array_view<float, 3>   expect_view_;
         concurrency::array_view<float, 3>   next_value_view_;
@@ -46,13 +47,13 @@ namespace deep_learning_lib
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
         
-        // seen data vectors, lives in GPU
-        std::vector<concurrency::array<float, 3>> memory_pool_;
+        // seen data vectors which surprised the model
+        concurrency::array_view<float, 4> memory_pool_view_;
 
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int depth, int height, int width, int seed = 0);
+        DataLayer(int depth, int height, int width, int seed = 0, int memory_pool_size = 3);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);
@@ -70,6 +71,10 @@ namespace deep_learning_lib
         inline int width() const
         {
             return value_view_.extent[2];
+        }
+        inline int memory_pool_size() const
+        {
+            return memory_pool_view_.extent[0];
         }
 
         void Activate(float probability = 1.0f);

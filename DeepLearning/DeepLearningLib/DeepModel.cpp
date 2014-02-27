@@ -12,7 +12,7 @@ namespace deep_learning_lib
 {
     using namespace concurrency;
 
-    DataLayer::DataLayer(int depth, int height, int width, int seed)
+    DataLayer::DataLayer(int depth, int height, int width, int seed, int memory_pool_size)
         : value_(depth * height * width),
         value_view_(depth, height, width, value_),
         expect_(value_.size()),
@@ -24,20 +24,10 @@ namespace deep_learning_lib
         active_prob_(1.0f),
         active_(value_.size(), 1),
         active_view_(value_view_.extent, active_),
+        memory_pool_(memory_pool_size * depth * height * width),
+        memory_pool_view_(extent<4>(std::array<int, 4>{{memory_pool_size, depth, height, width}}.data()), memory_pool_),
         rand_collection_(value_view_.extent, seed)
     {
-        memory_pool_.reserve(kMemorySize);
-        for (int i = 0; i < kMemorySize; i++)
-        {
-            memory_pool_.emplace_back(value_view_.extent);
-            auto& memory = memory_pool_.back();
-
-            parallel_for_each(memory.extent, 
-                [&](index<3> idx) restrict(amp)
-            {
-                memory[idx] = 0.0f;
-            });
-        }
     }
 
     DataLayer::DataLayer(DataLayer&& other)
@@ -53,9 +43,9 @@ namespace deep_learning_lib
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
         memory_pool_(std::move(other.memory_pool_)),
+        memory_pool_view_(other.memory_pool_view_),
         rand_collection_(other.rand_collection_)
     {
-
     }
 
     void DataLayer::SetValue(const std::vector<float>& data)
@@ -91,45 +81,50 @@ namespace deep_learning_lib
 
     float DataLayer::ReconstructionError() const
     {
-        value_view_.synchronize();
-        next_expect_view_.synchronize();
+        array_view<float> result(1);
+        array_view<const float, 3> value_view = value_view_;
+        array_view<const float, 3> next_expect_view = next_expect_view_;
 
-        float result = 0.0f;
-        for (int i = 0; i < value_.size(); i++)
+        // TODO: compare with reduce method for performance
+        parallel_for_each(value_view.extent,
+            [=](index<3> idx) restrict(amp)
         {
-            result += std::powf(value_[i] - next_expect_[i], 2);
-        }
+            float value = result[0] + fast_math::powf(value_view[idx] - next_expect_view[idx], 2);
+            atomic_exchange(&result[0], value);
+        });
 
-        return std::sqrtf(result);
+        return std::sqrtf(result[0]);
     }
 
     void DataLayer::Memorize()
     {
-        value_view_.synchronize();
+        array_view<float> diffs_view(memory_pool_size());
+        array_view<const float, 3> value_view = value_view_;
+        array_view<const float, 4> memory_pool_view = memory_pool_view_;
 
-        // Replace the most similar memory in the pool
-        // TODO: replace with atomic_fetch_add or reduce to calc the sum for perf improvement
-        std::vector<float> memory(value_.size());
-        float min_diff = std::numeric_limits<float>::max();
-        float min_idx = -1;
-
-        for (int i = 0; i < memory_pool_.size(); i++)
+        parallel_for_each(value_view.extent, 
+            [=](index<3> idx) restrict(amp)
         {
-            copy(memory_pool_[i], memory.begin());
-            float diff = 0.0f;
-            for (int j = 0; j < memory.size(); j++)
+            for (int i = 0; i < diffs_view.extent[0]; i++)
             {
-                diff += std::powf(memory[j] - value_[i], 2);
+                float value = diffs_view[i] + fast_math::powf(memory_pool_view[i][idx] - value_view[idx], 2);
+                atomic_exchange(&diffs_view[i], value);
             }
-            diff = std::sqrtf(diff);
-            if (diff < min_diff)
+        });
+
+        float min_diff = std::numeric_limits<float>::max();
+        int min_idx = -1;
+
+        for (int i = 0; i < diffs_view.extent[0]; i++)
+        {
+            if (diffs_view[i] < min_diff)
             {
-                min_diff = diff;
+                min_diff = diffs_view[i];
                 min_idx = i;
             }
         }
-
-        value_view_.copy_to(memory_pool_[min_idx]);
+        
+        value_view_.copy_to(memory_pool_view_[min_idx]);
     }
 
     bitmap_image DataLayer::GenerateImage() const
