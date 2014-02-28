@@ -198,7 +198,7 @@ void TestRBM()
 
     for (int i = 0; i < 500; i++)
     {
-        model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10, true);
+        model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10, false);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "Precision = " << precision << std::endl;
     }
