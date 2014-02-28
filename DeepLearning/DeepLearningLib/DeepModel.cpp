@@ -8,6 +8,8 @@
 
 #include <iostream>
 
+#include "AmpUtility.h"
+
 namespace deep_learning_lib
 {
     using namespace concurrency;
@@ -85,15 +87,17 @@ namespace deep_learning_lib
         array_view<const float, 3> value_view = value_view_;
         array_view<const float, 3> next_expect_view = next_expect_view_;
 
+        value_view.synchronize();
+        next_expect_view.synchronize();
+
         // TODO: compare with reduce method for performance
         parallel_for_each(value_view.extent,
             [=](index<3> idx) restrict(amp)
         {
-            float value = result[0] + fast_math::powf(value_view[idx] - next_expect_view[idx], 2);
-            atomic_exchange(&result[0], value);
+            atomic_fetch_add(&result(0), fast_math::powf(value_view[idx] - next_expect_view[idx], 2));
         });
 
-        return std::sqrtf(result[0]);
+        return std::sqrtf(result(0));
     }
 
     void DataLayer::Memorize()
@@ -107,8 +111,7 @@ namespace deep_learning_lib
         {
             for (int i = 0; i < diffs_view.extent[0]; i++)
             {
-                float value = diffs_view[i] + fast_math::powf(memory_pool_view[i][idx] - value_view[idx], 2);
-                atomic_exchange(&diffs_view[i], value);
+                atomic_fetch_add(&diffs_view(i), fast_math::powf(memory_pool_view[i][idx] - value_view[idx], 2));
             }
         });
 
@@ -117,9 +120,9 @@ namespace deep_learning_lib
 
         for (int i = 0; i < diffs_view.extent[0]; i++)
         {
-            if (diffs_view[i] < min_diff)
+            if (diffs_view(i) < min_diff)
             {
-                min_diff = diffs_view[i];
+                min_diff = diffs_view(i);
                 min_idx = i;
             }
         }

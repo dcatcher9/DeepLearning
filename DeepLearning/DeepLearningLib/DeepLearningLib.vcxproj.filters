@@ -41,6 +41,9 @@
     <ClInclude Include="xxamp_tinymt_precalc_dc.h">
       <Filter>Tools</Filter>
     </ClInclude>
+    <ClInclude Include="AmpUtility.h">
+      <Filter>Tools</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp">

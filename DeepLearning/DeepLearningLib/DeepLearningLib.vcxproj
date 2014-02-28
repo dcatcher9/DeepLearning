@@ -74,6 +74,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AmpUtility.h" />
     <ClInclude Include="amp_rand_collection.h" />
     <ClInclude Include="amp_sobol_rng.h" />
     <ClInclude Include="amp_tinymt_rng.h" />
