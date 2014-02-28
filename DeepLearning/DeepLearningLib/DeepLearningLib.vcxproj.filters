@@ -42,7 +42,7 @@
       <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="AmpUtility.h">
-      <Filter>Tools</Filter>
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
