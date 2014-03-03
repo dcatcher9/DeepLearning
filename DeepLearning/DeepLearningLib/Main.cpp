@@ -37,7 +37,7 @@ void TestUSPS()
     using namespace cpplinq;
 
     std::ifstream ifs(".\\Data Files\\usps_all.txt");
-    
+
     std::string line;
     std::getline(ifs, line);
 
@@ -102,8 +102,8 @@ void TestUSPS()
 
     /*for (int i = 0; i < 1000; i++)
     {
-        float err = model.TrainLayer(data.front(), 0, 0.1f);
-        std::cout << "iter = " << i << " err = " << err << std::endl;
+    float err = model.TrainLayer(data.front(), 0, 0.1f);
+    std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
     const float dropout_prob = 0.5f;
@@ -114,7 +114,7 @@ void TestUSPS()
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "Precision = " << precision << std::endl;
     }
-    
+
     //model.TrainLayer(train_data, 0, 5, 0.2f, 0.5f, 1100);
 
     model.GenerateImages("model_dump");
@@ -154,7 +154,7 @@ void TestRBM()
         auto bits = split(line, " ", false);
         auto data_bits = from(bits) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
         auto label_bits = from(bits) >> skip(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
-        
+
         if (rand(generator) < train_fraction)
         {
             train_data.emplace_back(data_bits);
@@ -190,19 +190,23 @@ void TestRBM()
 
     /*for (int i = 0; i < 1000; i++)
     {
-        float err = model.TrainLayer(data.front(), labels.front(), 0, 0.1f, 0.5f);
-        std::cout << "iter = " << i << " err = " << err << std::endl;
+    float err = model.TrainLayer(data.front(), labels.front(), 0, 0.1f, 0.5f);
+    std::cout << "iter = " << i << " err = " << err << std::endl;
     }*/
 
     const float dropout_prob = 0.5f;
 
+    model.TrainLayer(train_data, 0, 10, 0.2f, dropout_prob, 1000);
+
+    /*
     for (int i = 0; i < 500; i++)
     {
-        model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10, false);
-        float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
-        std::cout << "Precision = " << precision << std::endl;
+    model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10, false);
+    float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+    std::cout << "Precision = " << precision << std::endl;
     }
-    
+    */
+
 
     model.GenerateImages("model_dump");
 }

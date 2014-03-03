@@ -1424,6 +1424,8 @@ namespace deep_learning_lib
         conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
         conv_layer.Train(bottom_layer, top_layer, learning_rate, false);
+        
+        bottom_layer.Memorize();
 
         return bottom_layer.ReconstructionError();
     }
@@ -1484,6 +1486,8 @@ namespace deep_learning_lib
                 conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
                 conv_layer.Train(bottom_layer, top_layer, learning_rate, true);
+
+                bottom_layer.Memorize();
             }
 
             conv_layer.ApplyBufferedUpdate(mini_batch_size);
