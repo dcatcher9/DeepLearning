@@ -40,6 +40,9 @@ namespace deep_learning_lib
         std::vector<float> memory_pool_;
         // how strong is each memory in the pool
         std::vector<float> memory_intensity_;
+
+        // we forget/forgive , or else we cannot learn.
+        const float kMemoryDecayRate = 0.99f;
         
     public:
         concurrency::array_view<float, 3>   value_view_;
@@ -55,7 +58,7 @@ namespace deep_learning_lib
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int depth, int height, int width, int seed = 0, int memory_pool_size = 3);
+        DataLayer(int depth, int height, int width, int seed = 0, int memory_pool_size = 10);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);

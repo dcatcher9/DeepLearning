@@ -136,14 +136,28 @@ namespace deep_learning_lib
         // memory refreshment logic, adaboost style
         if (recon_error <= min_diff)
         {
-            auto min_intensity_iter = std::min_element(memory_intensity_.begin(), memory_intensity_.end());
+            // current value is too new or already well recognized. 
+            int min_intensity_idx = -1;
+            float min_intensity = std::numeric_limits<float>::max();
 
-            if (recon_error > *min_intensity_iter)
+            for (int j = 0; j < memory_intensity_.size(); j++)
             {
-                // replace existing min_intensity_idx, array_view accept int instead of __int64, so we need cast here.
-                value_view_.copy_to(memory_pool_view_[
-                    static_cast<int>(std::distance(memory_intensity_.begin(), min_intensity_iter))]);
-                *min_intensity_iter = recon_error;
+                float& intensity = memory_intensity_[j];
+
+                intensity *= kMemoryDecayRate;
+
+                if (intensity < min_intensity)
+                {
+                    min_intensity = intensity;
+                    min_intensity_idx = j;
+                }
+            }
+            
+            if (recon_error > min_intensity)
+            {
+                // replace existing min_intensity_idx
+                value_view_.copy_to(memory_pool_view_[min_intensity_idx]);
+                memory_intensity_[min_intensity_idx] = recon_error;
                 return true;
             }
             // discard current value since the model is already doing well with it.
@@ -169,6 +183,7 @@ namespace deep_learning_lib
         expect_view_.synchronize();
         next_value_view_.synchronize();
         next_expect_view_.synchronize();
+        memory_pool_view_.synchronize();
 
         bitmap_image image;
 
@@ -176,7 +191,7 @@ namespace deep_learning_lib
 
         if (width() == 1 && height() == 1)
         {
-            image.setwidth_height(depth() * (block_size + 1), 4 * (block_size + 1), true);
+            image.setwidth_height(depth() * (block_size + 1), (4 + 2 + memory_pool_size()) * (block_size + 1), true);
             for (int i = 0; i < value_.size(); i++)
             {
                 image.set_region(i * (block_size + 1), 0, block_size, block_size, 
@@ -200,11 +215,20 @@ namespace deep_learning_lib
                 image.set_region(i * (block_size + 1), 3 * (block_size + 1), block_size, block_size,
                     static_cast<unsigned char>(255.0 * next_expect_[i]));
             }
+
+            for (int i = 0; i < memory_pool_size(); i++)
+            {
+                for (int j = 0; j < depth(); j++)
+                {
+                    image.set_region(j * (block_size + 1), (6 + i) * (block_size + 1), block_size, block_size,
+                        static_cast<unsigned char>(255.0 * memory_pool_[i * depth() + j]));
+                }
+            }
         }
         else
         {
             image.setwidth_height(depth() * (width() + 1) * (block_size + 1), 
-                4 * (height() + 1) * (block_size + 1), true);
+                ((4 + memory_pool_size()) * (height() + 1) + 2) * (block_size + 1), true);
             for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
             {
                 for (int height_idx = 0; height_idx < height(); height_idx++)
@@ -253,6 +277,22 @@ namespace deep_learning_lib
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                             (3 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
                             static_cast<unsigned char>(255.0 * next_expect_[depth_idx * width() * height() + height_idx * width() + width_idx]));
+                    }
+                }
+            }
+
+            for (int memory_idx = 0; memory_idx < memory_pool_size(); memory_idx++)
+            {
+                for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
+                {
+                    for (int height_idx = 0; height_idx < height(); height_idx++)
+                    {
+                        for (int width_idx = 0; width_idx < width(); width_idx++)
+                        {
+                            image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
+                                ((4 + memory_idx) * (height() + 1) + height_idx + 2) * (block_size + 1), block_size, block_size,
+                                static_cast<unsigned char>(255.0 * memory_pool_[memory_idx * depth() * width() * height() + depth_idx * width() * height() + height_idx * width() + width_idx]));
+                        }
                     }
                 }
             }
