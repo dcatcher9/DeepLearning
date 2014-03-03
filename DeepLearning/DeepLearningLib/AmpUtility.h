@@ -17,5 +17,23 @@ namespace deep_learning_lib
 
         return newVal;
     }
+
+    template<typename T, int Rank>
+    void fill(concurrency::array<T, Rank>& arr, T initValue) {
+        concurrency::parallel_for_each(arr.extent,
+            [&arr, initValue](concurrency::index<Rank> idx) restrict(amp)
+        {
+            arr[idx] = initValue;
+        });
+    }
+
+    template<typename T, int Rank>
+    void fill(concurrency::array_view<T, Rank>& arr, T initValue) {
+        concurrency::parallel_for_each(arr.extent, 
+            [=](concurrency::index<Rank> idx) restrict(amp)
+        {
+            arr[idx] = initValue;
+        });
+    }
 }
 

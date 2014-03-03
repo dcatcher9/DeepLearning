@@ -28,6 +28,7 @@ namespace deep_learning_lib
         active_view_(value_view_.extent, active_),
         memory_pool_(memory_pool_size * depth * height * width),
         memory_pool_view_(extent<4>(std::array<int, 4>{{memory_pool_size, depth, height, width}}.data()), memory_pool_),
+        memory_intensity_(memory_pool_size),
         rand_collection_(value_view_.extent, seed)
     {
     }
@@ -46,6 +47,7 @@ namespace deep_learning_lib
         active_view_(other.active_view_),
         memory_pool_(std::move(other.memory_pool_)),
         memory_pool_view_(other.memory_pool_view_),
+        memory_intensity_(std::move(other.memory_intensity_)),
         rand_collection_(other.rand_collection_)
     {
     }
@@ -84,25 +86,25 @@ namespace deep_learning_lib
     float DataLayer::ReconstructionError() const
     {
         array_view<float> result(1);
+
         array_view<const float, 3> value_view = value_view_;
         array_view<const float, 3> next_expect_view = next_expect_view_;
-
-        value_view.synchronize();
-        next_expect_view.synchronize();
 
         // TODO: compare with reduce method for performance
         parallel_for_each(value_view.extent,
             [=](index<3> idx) restrict(amp)
         {
-            atomic_fetch_add(&result(0), fast_math::powf(value_view[idx] - next_expect_view[idx], 2));
+            float diff = value_view[idx] - next_expect_view[idx];
+            atomic_fetch_add(&result(0), diff * diff);
         });
 
         return std::sqrtf(result(0));
     }
 
-    void DataLayer::Memorize()
+    bool DataLayer::Memorize()
     {
         array_view<float> diffs_view(memory_pool_size());
+
         array_view<const float, 3> value_view = value_view_;
         array_view<const float, 4> memory_pool_view = memory_pool_view_;
 
@@ -111,7 +113,8 @@ namespace deep_learning_lib
         {
             for (int i = 0; i < diffs_view.extent[0]; i++)
             {
-                atomic_fetch_add(&diffs_view(i), fast_math::powf(memory_pool_view[i][idx] - value_view[idx], 2));
+                float diff = memory_pool_view[i][idx] - value_view[idx];
+                atomic_fetch_add(&diffs_view(i), diff * diff);
             }
         });
 
@@ -120,14 +123,44 @@ namespace deep_learning_lib
 
         for (int i = 0; i < diffs_view.extent[0]; i++)
         {
-            if (diffs_view(i) < min_diff)
+            float diff = std::sqrtf(diffs_view(i));
+            if (diff < min_diff)
             {
-                min_diff = diffs_view(i);
+                min_diff = diff;
                 min_idx = i;
             }
         }
-        
-        value_view_.copy_to(memory_pool_view_[min_idx]);
+
+        float recon_error = ReconstructionError();
+
+        // memory refreshment logic, adaboost style
+        if (recon_error <= min_diff)
+        {
+            auto min_intensity_iter = std::min_element(memory_intensity_.begin(), memory_intensity_.end());
+
+            if (recon_error > *min_intensity_iter)
+            {
+                // replace existing min_intensity_idx, array_view accept int instead of __int64, so we need cast here.
+                value_view_.copy_to(memory_pool_view_[
+                    static_cast<int>(std::distance(memory_intensity_.begin(), min_intensity_iter))]);
+                *min_intensity_iter = recon_error;
+                return true;
+            }
+            // discard current value since the model is already doing well with it.
+        }
+        else // recon_error > min_diff
+        {
+            if (recon_error > memory_intensity_[min_idx])
+            {
+                // replace the closest memory with current value
+                value_view_.copy_to(memory_pool_view_[min_idx]);
+                memory_intensity_[min_idx] = recon_error;
+                return true;
+            }
+            // the model is doing worse with existing closest memory, no need to replace 
+        }
+
+        return false;
     }
 
     bitmap_image DataLayer::GenerateImage() const
@@ -1290,7 +1323,7 @@ namespace deep_learning_lib
             // when we have memory, the bottom_layer can activate according to its memory. 
             // But now we just use uniform activation.
 
-            int height_idx = idx[1] / block_height;// trunc towards zero
+            int height_idx = idx[1] / block_height;// truncate towards zero
             int width_idx = idx[2] / block_width;
             
 

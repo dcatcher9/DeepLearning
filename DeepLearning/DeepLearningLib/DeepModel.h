@@ -27,7 +27,7 @@ namespace deep_learning_lib
     class DataLayer
     {
     private:
-        // these vectors are initialzed before the corresponding array_views
+        // these vectors are initialized before the corresponding array_views
         std::vector<float>  value_;
         std::vector<float>  expect_;
 
@@ -38,6 +38,8 @@ namespace deep_learning_lib
         std::vector<int>    active_;
 
         std::vector<float> memory_pool_;
+        // how strong is each memory in the pool
+        std::vector<float> memory_intensity_;
         
     public:
         concurrency::array_view<float, 3>   value_view_;
@@ -81,7 +83,9 @@ namespace deep_learning_lib
 
         float ReconstructionError() const;
 
-        void Memorize();
+        // Memorize current value if necessary. Data-driven, nonparametric.
+        // Return false if current value is already well learned thus discarded.
+        bool Memorize();
 
         bitmap_image GenerateImage() const;
     };
@@ -221,7 +225,7 @@ namespace deep_learning_lib
         bitmap_image GenerateImage() const;
     };
 
-    // Pooling layer after convolvation, no params. 
+    // Pooling layer after convolution, no params. 
     // Currently support max pooling, which is the most common pooling method.
     class PoolingLayer
     {
