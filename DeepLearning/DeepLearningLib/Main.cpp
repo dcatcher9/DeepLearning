@@ -108,14 +108,14 @@ void TestUSPS()
 
     const float dropout_prob = 0.5f;
 
-    for (int i = 0; i < 500; i++)
+    /*for (int i = 0; i < 500; i++)
     {
         model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "Precision = " << precision << std::endl;
-    }
+    }*/
 
-    //model.TrainLayer(train_data, 0, 5, 0.2f, 0.5f, 1100);
+    model.TrainLayer(train_data, 0, 10, 0.2f, dropout_prob, 1000);
 
     model.GenerateImages("model_dump");
 }
@@ -213,6 +213,6 @@ void TestRBM()
 
 void main()
 {
-    //TestUSPS();
-    TestRBM();
+    TestUSPS();
+    //TestRBM();
 }

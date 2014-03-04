@@ -86,8 +86,9 @@ namespace deep_learning_lib
 
         float ReconstructionError() const;
 
-        // Memorize current value if necessary. Data-driven, nonparametric.
-        // Return false if current value is already well learned thus discarded.
+        // Memorize current value if necessary. If a memory match is found, it will replace the current next value.
+        // Data-driven, nonparametric.
+        // Return false if current value is already well learned thus not memorized.
         bool Memorize();
 
         bitmap_image GenerateImage() const;

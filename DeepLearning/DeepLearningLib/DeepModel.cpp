@@ -88,13 +88,13 @@ namespace deep_learning_lib
         array_view<float> result(1);
 
         array_view<const float, 3> value_view = value_view_;
-        array_view<const float, 3> next_expect_view = next_expect_view_;
+        array_view<const float, 3> next_value_view = next_value_view_;
 
         // TODO: compare with reduce method for performance
         parallel_for_each(value_view.extent,
             [=](index<3> idx) restrict(amp)
         {
-            float diff = value_view[idx] - next_expect_view[idx];
+            float diff = value_view[idx] - next_value_view[idx];
             atomic_fetch_add(&result(0), diff * diff);
         });
 
@@ -164,14 +164,17 @@ namespace deep_learning_lib
         }
         else // recon_error > min_diff
         {
+            // the model is doing worse at current value than just using the closest memory, 
+            // we use memory instead of model
+            memory_pool_view_[min_idx].copy_to(next_value_view_);
+
             if (recon_error > memory_intensity_[min_idx])
             {
-                // replace the closest memory with current value
+                // current bad value is a more worthy case to remember, so we replace the closest memory with current value
                 value_view_.copy_to(memory_pool_view_[min_idx]);
                 memory_intensity_[min_idx] = recon_error;
                 return true;
             }
-            // the model is doing worse with existing closest memory, no need to replace 
         }
 
         return false;
@@ -315,19 +318,8 @@ namespace deep_learning_lib
         weights_view_(extent<4>(std::array<int, 4>{{output_num, input_depth, input_height, input_width}}.data()), weights_),
         weights_delta_(weights_view_.extent)
     {
-        auto& weights_delta = weights_delta_;
-        parallel_for_each(weights_delta.extent,
-            [&](index<4> idx) restrict(amp)
-        {
-            weights_delta[idx] = 0.0f;
-        });
-
-        auto& bias_delta = bias_delta_;
-        parallel_for_each(bias_delta.extent,
-            [&](index<1> idx) restrict(amp)
-        {
-            bias_delta[idx] = 0.0f;
-        });
+        fill(weights_delta_, 0.0f);
+        fill(bias_delta_, 0.0f);
     }
 
     OutputLayer::OutputLayer(OutputLayer&& other)
@@ -342,7 +334,6 @@ namespace deep_learning_lib
         weights_view_(other.weights_view_),
         weights_delta_(std::move(other.weights_delta_))
     {
-
     }
 
     void OutputLayer::SetLabel(const int label)
@@ -1463,9 +1454,9 @@ namespace deep_learning_lib
         conv_layer.PassDown(top_layer, true, bottom_layer, false);
         conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
-        conv_layer.Train(bottom_layer, top_layer, learning_rate, false);
-        
         bottom_layer.Memorize();
+
+        conv_layer.Train(bottom_layer, top_layer, learning_rate, false);
 
         return bottom_layer.ReconstructionError();
     }
@@ -1525,9 +1516,9 @@ namespace deep_learning_lib
                 conv_layer.PassDown(top_layer, true, bottom_layer, false);
                 conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
-                conv_layer.Train(bottom_layer, top_layer, learning_rate, true);
-
                 bottom_layer.Memorize();
+
+                conv_layer.Train(bottom_layer, top_layer, learning_rate, true);
             }
 
             conv_layer.ApplyBufferedUpdate(mini_batch_size);
