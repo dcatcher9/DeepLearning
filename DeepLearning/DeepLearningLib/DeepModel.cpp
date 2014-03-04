@@ -1452,9 +1452,10 @@ namespace deep_learning_lib
 
         conv_layer.PassUp(bottom_layer, true, top_layer, true);
         conv_layer.PassDown(top_layer, true, bottom_layer, false);
-        conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
         bottom_layer.Memorize();
+
+        conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
         conv_layer.Train(bottom_layer, top_layer, learning_rate, false);
 
@@ -1514,9 +1515,10 @@ namespace deep_learning_lib
 
                 conv_layer.PassUp(bottom_layer, true, top_layer, true);
                 conv_layer.PassDown(top_layer, true, bottom_layer, false);
-                conv_layer.PassUp(bottom_layer, false, top_layer, false);
-
+                
                 bottom_layer.Memorize();
+
+                conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
                 conv_layer.Train(bottom_layer, top_layer, learning_rate, true);
             }
