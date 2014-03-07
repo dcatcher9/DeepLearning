@@ -41,7 +41,7 @@ namespace deep_learning_lib
         // how strong is each memory in the pool
         std::vector<float> memory_intensity_;
 
-        // we forget/forgive , or else we cannot learn.
+        // if we don't forget/forgive, we cannot learn.
         const float kMemoryDecayRate = 0.99f;
         
     public:
@@ -58,7 +58,7 @@ namespace deep_learning_lib
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int depth, int height, int width, int seed = 0, int memory_pool_size = 10);
+        DataLayer(int depth, int height, int width, int memory_pool_size = 10, int seed = 0);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);
@@ -87,7 +87,7 @@ namespace deep_learning_lib
         float ReconstructionError() const;
 
         // Memorize current value if necessary. If a memory match is found, it will replace the current next value.
-        // Data-driven, nonparametric.
+        // Data-driven, Nonparametric. Memorization is a kind of learning.
         // Return false if current value is already well learned thus not memorized.
         bool Memorize();
 
@@ -97,7 +97,7 @@ namespace deep_learning_lib
     class ConvolveLayer;
 
     // Currently support 1-of-N classifier output.
-    // It contains both data and weight parameters. 
+    // It contains both data and weight parameters.
     // Support both discriminative and generative training.
     class OutputLayer
     {

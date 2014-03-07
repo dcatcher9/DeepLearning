@@ -14,7 +14,7 @@ namespace deep_learning_lib
 {
     using namespace concurrency;
 
-    DataLayer::DataLayer(int depth, int height, int width, int seed, int memory_pool_size)
+    DataLayer::DataLayer(int depth, int height, int width, int memory_pool_size, int seed)
         : value_(depth * height * width),
         value_view_(depth, height, width, value_),
         expect_(value_.size()),
@@ -1385,7 +1385,7 @@ namespace deep_learning_lib
 
     void DeepModel::AddDataLayer(int depth, int height, int width, int memory_pool_size)
     {
-        data_layers_.emplace_back(depth, height, width, std::uniform_int_distribution<int>()(random_engine_), memory_pool_size);
+        data_layers_.emplace_back(depth, height, width, memory_pool_size, std::uniform_int_distribution<int>()(random_engine_));
     }
 
     void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width)
