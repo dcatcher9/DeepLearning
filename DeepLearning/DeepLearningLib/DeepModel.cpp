@@ -164,8 +164,8 @@ namespace deep_learning_lib
         }
         else // recon_error > min_diff
         {
-            // the model is doing worse at current value than just using the closest memory, 
-            // we use memory instead of model
+            // the model is doing worse at current value than just using the closest memory
+            // so we replace the output with the closest memory
             memory_pool_view_[min_idx].copy_to(next_value_view_);
 
             if (recon_error > memory_intensity_[min_idx])
@@ -1383,25 +1383,25 @@ namespace deep_learning_lib
 
     }
 
-    void DeepModel::AddDataLayer(int depth, int height, int width, int seed)
+    void DeepModel::AddDataLayer(int depth, int height, int width, int memory_pool_size)
     {
-        data_layers_.emplace_back(depth, height, width, seed);
+        data_layers_.emplace_back(depth, height, width, std::uniform_int_distribution<int>()(random_engine_), memory_pool_size);
     }
 
-    void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width, unsigned int rand_seed)
+    void DeepModel::AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width)
     {
         convolve_layers_.emplace_back(num_neuron, neuron_depth, neuron_height, neuron_width);
-        convolve_layers_.back().RandomizeParams(rand_seed);
+        convolve_layers_.back().RandomizeParams(std::uniform_int_distribution<int>()(random_engine_));
     }
 
-    void DeepModel::AddOutputLayer(int data_layer_idx, int output_num, unsigned int seed)
+    void DeepModel::AddOutputLayer(int data_layer_idx, int output_num)
     {
         auto& data_layer = data_layers_[data_layer_idx];
 
         output_layers_.emplace(std::piecewise_construct, std::forward_as_tuple(data_layer_idx),
             std::forward_as_tuple(output_num, data_layer.depth(), data_layer.height(), data_layer.width()));
 
-        output_layers_.at(data_layer_idx).RandomizeParams(seed);
+        output_layers_.at(data_layer_idx).RandomizeParams(std::uniform_int_distribution<int>()(random_engine_));
     }
 
     void DeepModel::PassUp(const std::vector<float>& data)
@@ -1452,12 +1452,11 @@ namespace deep_learning_lib
 
         conv_layer.PassUp(bottom_layer, true, top_layer, true);
         conv_layer.PassDown(top_layer, true, bottom_layer, false);
-
-        bottom_layer.Memorize();
-
         conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
         conv_layer.Train(bottom_layer, top_layer, learning_rate, false);
+
+        bottom_layer.Memorize();
 
         return bottom_layer.ReconstructionError();
     }
@@ -1515,12 +1514,11 @@ namespace deep_learning_lib
 
                 conv_layer.PassUp(bottom_layer, true, top_layer, true);
                 conv_layer.PassDown(top_layer, true, bottom_layer, false);
-                
-                bottom_layer.Memorize();
-
                 conv_layer.PassUp(bottom_layer, false, top_layer, false);
 
                 conv_layer.Train(bottom_layer, top_layer, learning_rate, true);
+
+                bottom_layer.Memorize();
             }
 
             conv_layer.ApplyBufferedUpdate(mini_batch_size);

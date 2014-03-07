@@ -257,10 +257,9 @@ namespace deep_learning_lib
         // Disable copy constructor
         DeepModel(const DeepModel&) = delete;
 
-        void AddDataLayer(int depth, int height, int width, int seed = 0);
-        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width,
-            unsigned int rand_seed = 0);
-        void AddOutputLayer(int data_layer_idx, int output_num, unsigned int seed = 0);
+        void AddDataLayer(int depth, int height, int width, int memory_pool_size = 10);
+        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width);
+        void AddOutputLayer(int data_layer_idx, int output_num);
 
         void PassUp(const std::vector<float>& data);
         void PassDown();

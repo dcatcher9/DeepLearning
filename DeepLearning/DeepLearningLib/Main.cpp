@@ -95,9 +95,9 @@ void TestUSPS()
 
     DeepModel model;
 
-    model.AddDataLayer(1, 16, 16, 1);
+    model.AddDataLayer(1, 16, 16);
     model.AddConvolveLayer(600, 1, 16, 16);
-    model.AddDataLayer(600, 1, 1, 2);
+    model.AddDataLayer(600, 1, 1, 1);
     model.AddOutputLayer(1, 10);
 
     /*for (int i = 0; i < 1000; i++)
@@ -185,7 +185,7 @@ void TestRBM()
 
     model.AddDataLayer(256, 1, 1);
     model.AddConvolveLayer(600, 256, 1, 1);
-    model.AddDataLayer(600, 1, 1, 2);
+    model.AddDataLayer(600, 1, 1, 1);
     model.AddOutputLayer(1, 10);
 
     /*for (int i = 0; i < 1000; i++)
