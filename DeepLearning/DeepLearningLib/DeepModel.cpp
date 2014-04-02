@@ -313,13 +313,9 @@ namespace deep_learning_lib
         next_outputs_view_(output_num, next_outputs_),
         bias_(output_num),
         bias_view_(output_num, bias_),
-        bias_delta_(bias_view_.extent),
         weights_(output_num * input_depth * input_height * input_width),
-        weights_view_(extent<4>(std::array<int, 4>{{output_num, input_depth, input_height, input_width}}.data()), weights_),
-        weights_delta_(weights_view_.extent)
+        weights_view_(extent<4>(std::array<int, 4>{{output_num, input_depth, input_height, input_width}}.data()), weights_)
     {
-        fill(weights_delta_, 0.0f);
-        fill(bias_delta_, 0.0f);
     }
 
     OutputLayer::OutputLayer(OutputLayer&& other)
@@ -329,10 +325,8 @@ namespace deep_learning_lib
         next_outputs_view_(other.next_outputs_view_),
         bias_(std::move(other.bias_)),
         bias_view_(other.bias_view_),
-        bias_delta_(std::move(other.bias_delta_)),
         weights_(std::move(other.weights_)),
-        weights_view_(other.weights_view_),
-        weights_delta_(std::move(other.weights_delta_))
+        weights_view_(other.weights_view_)
     {
     }
 
@@ -342,31 +336,6 @@ namespace deep_learning_lib
         outputs_[label] = 1.0f;
 
         outputs_view_.refresh();
-    }
-
-    void OutputLayer::ApplyBufferedUpdate(int buffer_size)
-    {
-        auto& weights = weights_view_;
-        auto& weights_delta = weights_delta_;
-
-        parallel_for_each(weights.extent, [=, &weights_delta](index<4> idx) restrict(amp)
-        {
-            weights[idx] += weights_delta[idx] / buffer_size;
-            weights_delta[idx] = 0.0f;
-        });
-
-        auto& bias = bias_view_;
-        auto& bias_delta = bias_delta_;
-        parallel_for_each(bias.extent, [=, &bias_delta](index<1> idx) restrict(amp)
-        {
-            bias[idx] += bias_delta[idx] / buffer_size;
-            bias_delta[idx] = 0.0f;
-        });
-
-#ifdef DEBUG_SYNC
-        weights.synchronize();
-        bias.synchronize();
-#endif
     }
 
     void OutputLayer::RandomizeParams(unsigned int seed)
@@ -387,7 +356,7 @@ namespace deep_learning_lib
         DataLayer& top_layer, bool top_switcher,
         const ConvolveLayer& conv_layer, const float dropout_prob)
     {
-        assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
+        assert(top_layer.depth() == conv_layer.num_neuron() && top_layer.depth() == this->input_depth());
         assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
         assert(top_layer.height() == bottom_layer.height() - conv_layer.neuron_height() + 1 && top_layer.height() == this->input_height());
 
@@ -587,56 +556,32 @@ namespace deep_learning_lib
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    ConvolveLayer::ConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width)
-        : weights_(num_neuron * neuron_depth * neuron_height * neuron_width),
-        weights_view_(extent<4>(std::array<int, 4>{{ num_neuron, neuron_depth, neuron_height, neuron_width }}.data()), weights_),
-        weights_delta_(weights_view_.extent),
+    ConvolveLayer::ConvolveLayer(int num_neuron, int num_memory, int neuron_depth, int neuron_height, int neuron_width)
+        : num_neuron_(num_neuron), num_memory_(num_memory),
+        weights_((num_neuron + num_memory) * neuron_depth * neuron_height * neuron_width),
+        weights_view_(extent<4>(std::array<int, 4>{{ num_neuron + num_memory, neuron_depth, neuron_height, neuron_width }}.data()), weights_),
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
-        vbias_delta_(vbias_view_.extent),
         hbias_(num_neuron),
-        hbias_view_(num_neuron, hbias_),
-        hbias_delta_(hbias_view_.extent)
+        hbias_view_(num_neuron, hbias_)
     {
-        auto& weights_delta = weights_delta_;
-        parallel_for_each(weights_delta.extent, 
-            [&](index<4> idx) restrict(amp)
-        {
-            weights_delta[idx] = 0.0f;
-        });
-
-        auto& vbias_delta = vbias_delta_;
-        parallel_for_each(vbias_delta.extent,
-            [&](index<1> idx) restrict(amp)
-        {
-            vbias_delta[idx] = 0.0f;
-        });
-
-        auto& hbias_delta = hbias_delta_;
-        parallel_for_each(hbias_delta.extent,
-            [&](index<1> idx) restrict(amp)
-        {
-            hbias_delta[idx] = 0.0f;
-        });
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
-        : weights_(std::move(other.weights_)),
+        : num_neuron_(other.num_neuron_), num_memory_(other.num_memory_),
+        weights_(std::move(other.weights_)),
         weights_view_(other.weights_view_),
-        weights_delta_(std::move(other.weights_delta_)),
         vbias_(std::move(other.vbias_)),
         vbias_view_(other.vbias_view_),
-        vbias_delta_(std::move(other.vbias_delta_)),
         hbias_(std::move(other.hbias_)),
-        hbias_view_(other.hbias_view_),
-        hbias_delta_(std::move(hbias_delta_))
+        hbias_view_(other.hbias_view_)
     {
     }
 
     void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
         DataLayer& top_layer, bool top_switcher) const
     {
-        assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.depth() == this->num_neuron());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
@@ -700,7 +645,7 @@ namespace deep_learning_lib
         const OutputLayer& output_layer, bool output_switcher,
         DataLayer& top_layer, bool top_switcher) const
     {
-        assert(top_layer.depth() == this->neuron_num() && top_layer.depth() == output_layer.input_depth());
+        assert(top_layer.depth() == this->num_neuron() && top_layer.depth() == output_layer.input_depth());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1 && top_layer.width() == output_layer.input_width());
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1 && top_layer.height() == output_layer.input_height());
 
@@ -771,7 +716,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
         DataLayer& bottom_layer, bool bottom_switcher) const
     {
-        assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.depth() == this->num_neuron());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
@@ -844,7 +789,7 @@ namespace deep_learning_lib
         DataLayer& bottom_layer, bool bottom_switcher,
         OutputLayer& output_layer, bool output_switcher) const
     {
-        assert(top_layer.depth() == this->neuron_num() && top_layer.depth() == output_layer.input_depth());
+        assert(top_layer.depth() == this->num_neuron() && top_layer.depth() == output_layer.input_depth());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1 && top_layer.width() == output_layer.input_width());
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1 && top_layer.height() == output_layer.input_height());
 
@@ -941,12 +886,11 @@ namespace deep_learning_lib
 #endif
     }
 
-    void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
-        float learning_rate, bool buffered_update)
+    void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate)
     {
-        array_view<float, 4> weights = buffered_update ? weights_delta_ : weights_view_;
-        array_view<float> vbias = buffered_update ? vbias_delta_ : vbias_view_;
-        array_view<float> hbias = buffered_update ? hbias_delta_ : hbias_view_;
+        array_view<float, 4> weights = weights_view_;
+        array_view<float> vbias = vbias_view_;
+        array_view<float> hbias = hbias_view_;
 
         array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
         array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
@@ -1025,13 +969,13 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
-        float learning_rate, bool buffered_update, bool discriminative)
+        float learning_rate, bool discriminative)
     {
-        array_view<float, 4> weights = buffered_update ? weights_delta_ : weights_view_;
-        array_view<float> vbias = buffered_update ? vbias_delta_ : vbias_view_;
-        array_view<float> hbias = buffered_update ? hbias_delta_ : hbias_view_;
-        array_view<float, 4> output_weights = buffered_update ? output_layer.weights_delta_ : output_layer.weights_view_;
-        array_view<float> output_bias = buffered_update ? output_layer.bias_delta_ : output_layer.bias_view_;
+        array_view<float, 4> weights = weights_view_;
+        array_view<float> vbias = vbias_view_;
+        array_view<float> hbias = hbias_view_;
+        array_view<float, 4> output_weights = output_layer.weights_view_;
+        array_view<float> output_bias = output_layer.bias_view_;
 
         array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
         array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
@@ -1130,40 +1074,6 @@ namespace deep_learning_lib
 #endif
     }
 
-    void ConvolveLayer::ApplyBufferedUpdate(int buffer_size)
-    {
-        auto& weights = weights_view_;
-        auto& weights_delta = weights_delta_;
-
-        parallel_for_each(weights.extent, [=, &weights_delta](index<4> idx) restrict(amp)
-        {
-            weights[idx] += weights_delta[idx] / buffer_size;
-            weights_delta[idx] = 0.0f;
-        });
-
-        auto& vbias = vbias_view_;
-        auto& vbias_delta = vbias_delta_;
-        parallel_for_each(vbias.extent, [=, &vbias_delta](index<1> idx) restrict(amp)
-        {
-            vbias[idx] += vbias_delta[idx] / buffer_size;
-            vbias_delta[idx] = 0.0f;
-        });
-
-        auto& hbias = hbias_view_;
-        auto& hbias_delta = hbias_delta_;
-        parallel_for_each(hbias.extent, [=, &hbias_delta](index<1> idx) restrict(amp)
-        {
-            hbias[idx] += hbias_delta[idx] / buffer_size;
-            hbias_delta[idx] = 0.0f;
-        });
-
-#ifdef DEBUG_SYNC
-        weights.synchronize();
-        vbias.synchronize();
-        hbias.synchronize();
-#endif
-    }
-
     void ConvolveLayer::RandomizeParams(unsigned int seed)
     {
         std::default_random_engine generator(seed);
@@ -1208,7 +1118,7 @@ namespace deep_learning_lib
 
         if (neuron_width() == 1 && neuron_height() == 1)
         {
-            image.setwidth_height((2 + neuron_depth()) * (block_size + 1), (2 + neuron_num()) * (block_size + 1), true);
+            image.setwidth_height((2 + neuron_depth()) * (block_size + 1), (2 + num_neuron()) * (block_size + 1), true);
 
             for (int i = 0; i < vbias_.size(); i++)
             {
@@ -1224,7 +1134,7 @@ namespace deep_learning_lib
                     static_cast<unsigned char>(std::abs(hbias_[i]) / max_abs_hbias * 255.0));
             }
 
-            for (int neuron_idx = 0; neuron_idx < neuron_num(); neuron_idx++)
+            for (int neuron_idx = 0; neuron_idx < num_neuron(); neuron_idx++)
             {
                 for (int depth_idx = 0; depth_idx < neuron_depth(); depth_idx++)
                 {
@@ -1238,7 +1148,7 @@ namespace deep_learning_lib
         else
         {
             image.setwidth_height((2 + neuron_depth() * (neuron_width() + 1)) * (block_size + 1),
-                (2 + neuron_num() * (neuron_height() + 1)) * (block_size + 1), true);
+                (2 + num_neuron() * (neuron_height() + 1)) * (block_size + 1), true);
 
             for (int i = 0; i < vbias_.size(); i++)
             {
@@ -1254,7 +1164,7 @@ namespace deep_learning_lib
                     static_cast<unsigned char>(std::abs(hbias_[i]) / max_abs_hbias * 255.0));
             }
 
-            for (int neuron_idx = 0; neuron_idx < neuron_num(); neuron_idx++)
+            for (int neuron_idx = 0; neuron_idx < num_neuron(); neuron_idx++)
             {
                 for (int depth_idx = 0; depth_idx < neuron_depth(); depth_idx++)
                 {

@@ -28,18 +28,22 @@ namespace deep_learning_lib
     {
     private:
         // these vectors are initialized before the corresponding array_views
-        std::vector<float>  value_;
-        std::vector<float>  expect_;
+        //std::vector<float>  value_;
+        //std::vector<float>  expect_;
 
-        std::vector<float>  next_value_;
-        std::vector<float>  next_expect_;
+        //std::vector<float>  next_value_;
+        //std::vector<float>  next_expect_;
+
+        // internal storage for both value, expect_value, next_value, next_expect_value and short term memory.
+        std::vector<float> data_;
+        int memory_num_;
 
         float active_prob_;
         std::vector<int>    active_;
 
-        std::vector<float> memory_pool_;
+        //std::vector<float> memory_pool_;
         // how strong is each memory in the pool
-        std::vector<float> memory_intensity_;
+        //std::vector<float> memory_intensity_;
 
         // if we don't forget/forgive, we cannot learn.
         const float kMemoryDecayRate = 0.99f;
@@ -53,12 +57,12 @@ namespace deep_learning_lib
         concurrency::array_view<int, 3>     active_view_;
         
         // seen data vectors which surprised the model
-        concurrency::array_view<float, 4> memory_pool_view_;
+        concurrency::array_view<float, 4> memory_view_;
 
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int depth, int height, int width, int memory_pool_size = 10, int seed = 0);
+        DataLayer(int depth, int height, int width, int memory_num = 10, int seed = 0);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);
@@ -112,11 +116,8 @@ namespace deep_learning_lib
         concurrency::array_view<float>  next_outputs_view_;
         
         concurrency::array_view<float>  bias_view_;
-        concurrency::array<float>       bias_delta_;
-
         concurrency::array_view<float, 4>   weights_view_;
-        concurrency::array<float, 4>        weights_delta_;
-
+        
     public:
         OutputLayer(int output_num, int input_depth, int input_height, int input_width);
         // Disable copy constructor
@@ -142,8 +143,6 @@ namespace deep_learning_lib
         
         void SetLabel(const int label);
 
-        void ApplyBufferedUpdate(int buffer_size);
-
         void RandomizeParams(unsigned int seed);
 
         int PredictLabel(const DataLayer& bottom_layer, bool bottom_switcher,
@@ -163,31 +162,37 @@ namespace deep_learning_lib
     {
     private:
         // this vector is initialized before weight_view_
+        // traditional neuron weights and longterm memory weights are both contained in this vector
+        // since they share the same structure
         std::vector<float> weights_;
+
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
 
+        int num_neuron_;
+        int num_memory_;
+
     public:
         concurrency::array_view<float, 4>   weights_view_;
-        concurrency::array<float, 4>        weights_delta_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
-        concurrency::array<float>           vbias_delta_;
-
         concurrency::array_view<float>      hbias_view_;
-        concurrency::array<float>           hbias_delta_;
 
     public:
-        ConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width);
+        ConvolveLayer(int num_neuron, int num_memory, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
 
-        inline int neuron_num() const
+        inline int num_neuron() const
         {
-            return weights_view_.extent[0];
+            return num_neuron_;
+        }
+        inline int num_memory() const
+        {
+            return num_memory_;
         }
         inline int neuron_depth() const
         {
@@ -216,13 +221,10 @@ namespace deep_learning_lib
             DataLayer& bottom_layer, bool bottom_switcher,
             OutputLayer& output_layer, bool output_switcher) const;
 
-        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer,
-            float learning_rate, bool buffered_update);
+        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate);
 
         void Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
-            float learning_rate, bool buffered_update, bool discriminative = false);
-
-        void ApplyBufferedUpdate(int buffer_size);
+            float learning_rate, bool discriminative = false);
 
         void RandomizeParams(unsigned int seed);
 
