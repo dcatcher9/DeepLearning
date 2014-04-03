@@ -12,8 +12,8 @@
 
 namespace deep_learning_lib
 {
-    // 3-dimensional data layer, cache the intermediate result in neural network
-    // 3 dimension:
+    // 4-dimensional data layer, cache the intermediate result in neural network
+    // 3 dimension + time:
     //     _____________________
     //    /                    /|
     //   / height             / |
@@ -23,27 +23,21 @@ namespace deep_learning_lib
     //  | depth             |  /
     //  |                   | / 
     //  ---------------------/
-    //  depth dimension is orderless, representing the concept of unordered set.
+    // depth dimension is orderless, representing the concept of unordered set.
+    // time dimension is for short-term memory.
     class DataLayer
     {
     private:
         // these vectors are initialized before the corresponding array_views
-        //std::vector<float>  value_;
-        //std::vector<float>  expect_;
-
-        //std::vector<float>  next_value_;
-        //std::vector<float>  next_expect_;
 
         // internal storage for both value, expect_value, next_value, next_expect_value and short term memory.
+        // simple unified storage because they all share the same structure.
         std::vector<float> data_;
+        concurrency::array_view<float, 4> data_view_;
         int memory_num_;
 
         float active_prob_;
         std::vector<int>    active_;
-
-        //std::vector<float> memory_pool_;
-        // how strong is each memory in the pool
-        //std::vector<float> memory_intensity_;
 
         // if we don't forget/forgive, we cannot learn.
         const float kMemoryDecayRate = 0.99f;
@@ -56,19 +50,22 @@ namespace deep_learning_lib
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
         
-        // seen data vectors which surprised the model
+        // short term memory view
         concurrency::array_view<float, 4> memory_view_;
 
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int depth, int height, int width, int memory_num = 10, int seed = 0);
+        DataLayer(int memory_num, int depth, int height, int width, int seed = 0);
         // Disable copy constructor
         DataLayer(const DataLayer&) = delete;
         DataLayer(DataLayer&& other);
 
         void SetValue(const std::vector<float>& data);
-
+        inline int memory_num() const
+        {
+            return memory_num_;
+        }
         inline int depth() const
         {
             return value_view_.extent[0];
@@ -80,10 +77,6 @@ namespace deep_learning_lib
         inline int width() const
         {
             return value_view_.extent[2];
-        }
-        inline int memory_pool_size() const
-        {
-            return memory_pool_view_.extent[0];
         }
 
         void Activate(float probability = 1.0f);
@@ -161,50 +154,52 @@ namespace deep_learning_lib
     class ConvolveLayer
     {
     private:
-        // this vector is initialized before weight_view_
         // traditional neuron weights and longterm memory weights are both contained in this vector
         // since they share the same structure
         std::vector<float> weights_;
+        concurrency::array_view<float, 4> weights_view_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
 
-        int num_neuron_;
-        int num_memory_;
+        int memory_num_;
 
     public:
-        concurrency::array_view<float, 4>   weights_view_;
+        // traditional neurons weight view
+        concurrency::array_view<float, 4>   neurons_view_;
+        // long term memory view
+        concurrency::array_view<float, 4>   memory_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
         concurrency::array_view<float>      hbias_view_;
 
     public:
-        ConvolveLayer(int num_neuron, int num_memory, int neuron_depth, int neuron_height, int neuron_width);
+        ConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
-
-        inline int num_neuron() const
+        
+        inline int memory_num() const
         {
-            return num_neuron_;
+            return memory_num_;
         }
-        inline int num_memory() const
+        inline int neuron_num() const
         {
-            return num_memory_;
+            return neurons_view_.extent[0];
         }
         inline int neuron_depth() const
         {
-            return weights_view_.extent[1];
+            return neurons_view_.extent[1];
         }
         inline int neuron_height() const
         {
-            return weights_view_.extent[2];
+            return neurons_view_.extent[2];
         }
         inline int neuron_width() const
         {
-            return weights_view_.extent[3];
+            return neurons_view_.extent[3];
         }
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,

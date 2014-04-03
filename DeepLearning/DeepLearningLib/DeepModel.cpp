@@ -1,7 +1,5 @@
 #include "DeepModel.h"
 
-#include <array>
-#include <tuple>
 #include <assert.h>
 #include <random>
 #include <amp_math.h>
@@ -14,52 +12,47 @@ namespace deep_learning_lib
 {
     using namespace concurrency;
 
-    DataLayer::DataLayer(int depth, int height, int width, int memory_pool_size, int seed)
-        : value_(depth * height * width),
-        value_view_(depth, height, width, value_),
-        expect_(value_.size()),
-        expect_view_(value_view_.extent, expect_),
-        next_value_(value_.size()),
-        next_value_view_(value_view_.extent, next_value_),
-        next_expect_(value_.size()),
-        next_expect_view_(value_view_.extent, next_expect_),
+    DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
+        : memory_num_(memory_num),
+        data_((4 + memory_num) * depth * height * width),
+        data_view_(make_extent(memory_num + 4, depth, height, width), data_),
+        value_view_(data_view_[memory_num]),
+        expect_view_(data_view_[memory_num + 1]),
+        next_value_view_(data_view_[memory_num + 2]),
+        next_expect_view_(data_view_[memory_num + 3]),
         active_prob_(1.0f),
-        active_(value_.size(), 1),
+        active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
-        memory_pool_(memory_pool_size * depth * height * width),
-        memory_pool_view_(extent<4>(std::array<int, 4>{{memory_pool_size, depth, height, width}}.data()), memory_pool_),
-        memory_intensity_(memory_pool_size),
+        // there is no empty array_view support in amp now, so we just map the memory_view_ to the whole data_
+        // when the memory_num == 0
+        memory_view_(data_view_.section(make_extent(memory_num == 0 ? 4 : memory_num, depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
     }
 
     DataLayer::DataLayer(DataLayer&& other)
-        : value_(std::move(other.value_)),
+        : memory_num_(other.memory_num_),
+        data_(std::move(other.data_)),
+        data_view_(other.data_view_),
         value_view_(other.value_view_),
-        expect_(std::move(other.expect_)),
         expect_view_(other.expect_view_),
-        next_value_(std::move(other.next_value_)),
         next_value_view_(other.next_value_view_),
-        next_expect_(std::move(other.next_expect_)),
         next_expect_view_(other.next_expect_view_),
         active_prob_(other.active_prob_),
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
-        memory_pool_(std::move(other.memory_pool_)),
-        memory_pool_view_(other.memory_pool_view_),
-        memory_intensity_(std::move(other.memory_intensity_)),
+        memory_view_(other.memory_view_),
         rand_collection_(other.rand_collection_)
     {
     }
 
     void DataLayer::SetValue(const std::vector<float>& data)
     {
-        assert(data.size() == value_.size());
+        assert(data.size() == value_view_.extent.size());
 
         // Copy the data
-        value_ = data;
-        value_view_.refresh();
-
+        concurrency::copy(data, value_view_);
+        
         Activate();
     }
 
@@ -186,7 +179,7 @@ namespace deep_learning_lib
         expect_view_.synchronize();
         next_value_view_.synchronize();
         next_expect_view_.synchronize();
-        memory_pool_view_.synchronize();
+        memory_view_.synchronize();
 
         bitmap_image image;
 
@@ -194,44 +187,45 @@ namespace deep_learning_lib
 
         if (width() == 1 && height() == 1)
         {
-            image.setwidth_height(depth() * (block_size + 1), (4 + 2 + memory_pool_size()) * (block_size + 1), true);
-            for (int i = 0; i < value_.size(); i++)
+            image.setwidth_height(depth() * (block_size + 1), (4 + 2 + memory_num()) * (block_size + 1), true);
+            for (int i = 0; i < depth(); i++)
             {
                 image.set_region(i * (block_size + 1), 0, block_size, block_size, 
-                    value_[i] == 0.0f ? 0 : 255);
+                    value_view_(i, 0, 0) == 0.0f ? 0 : 255);
             }
 
-            for (int i = 0; i < next_value_.size(); i++)
+            for (int i = 0; i < depth(); i++)
             {
                 image.set_region(i * (block_size + 1), block_size + 1, block_size, block_size, 
-                    next_value_[i] == 0.0f ? 0 : 255);
+                    next_value_view_(i, 0, 0) == 0.0f ? 0 : 255);
             }
 
-            for (int i = 0; i < expect_.size(); i++)
+            for (int i = 0; i < depth(); i++)
             {
                 image.set_region(i * (block_size + 1), 2 * (block_size + 1), block_size, block_size, 
-                    static_cast<unsigned char>(255.0 * expect_[i]));
+                    static_cast<unsigned char>(255.0 * expect_view_(i, 0, 0)));
             }
 
-            for (int i = 0; i < next_expect_.size(); i++)
+            for (int i = 0; i < depth(); i++)
             {
                 image.set_region(i * (block_size + 1), 3 * (block_size + 1), block_size, block_size,
-                    static_cast<unsigned char>(255.0 * next_expect_[i]));
+                    static_cast<unsigned char>(255.0 * next_expect_view_(i, 0, 0)));
             }
 
-            for (int i = 0; i < memory_pool_size(); i++)
+            for (int i = 0; i < memory_num(); i++)
             {
+                auto memory_slice_view = memory_view_[i];
                 for (int j = 0; j < depth(); j++)
                 {
                     image.set_region(j * (block_size + 1), (6 + i) * (block_size + 1), block_size, block_size,
-                        static_cast<unsigned char>(255.0 * memory_pool_[i * depth() + j]));
+                        static_cast<unsigned char>(255.0 * memory_slice_view(j, 0, 0)));
                 }
             }
         }
         else
         {
             image.setwidth_height(depth() * (width() + 1) * (block_size + 1), 
-                ((4 + memory_pool_size()) * (height() + 1) + 2) * (block_size + 1), true);
+                ((4 + memory_num()) * (height() + 1) + 2) * (block_size + 1), true);
             for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
             {
                 for (int height_idx = 0; height_idx < height(); height_idx++)
@@ -240,7 +234,7 @@ namespace deep_learning_lib
                     {
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                             height_idx * (block_size + 1), block_size, block_size, 
-                            value_[depth_idx * width() * height() + height_idx * width() + width_idx] == 0.0f ? 0 : 255);
+                            value_view_(depth_idx, height_idx, width_idx) == 0.0f ? 0 : 255);
                     }
                 }
             }
@@ -253,7 +247,7 @@ namespace deep_learning_lib
                     {
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                             (height() + 1 + height_idx) * (block_size + 1), block_size, block_size,
-                            next_value_[depth_idx * width() * height() + height_idx * width() + width_idx] == 0.0f ? 0 : 255);
+                            next_value_view_(depth_idx, height_idx, width_idx) == 0.0f ? 0 : 255);
                     }
                 }
             }
@@ -266,7 +260,7 @@ namespace deep_learning_lib
                     {
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                             (2 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
-                            static_cast<unsigned char>(255.0 * expect_[depth_idx * width() * height() + height_idx * width() + width_idx]));
+                            static_cast<unsigned char>(255.0 * expect_view_(depth_idx, height_idx, width_idx)));
                     }
                 }
             }
@@ -279,13 +273,14 @@ namespace deep_learning_lib
                     {
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                             (3 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
-                            static_cast<unsigned char>(255.0 * next_expect_[depth_idx * width() * height() + height_idx * width() + width_idx]));
+                            static_cast<unsigned char>(255.0 * next_expect_view_(depth_idx, height_idx, width_idx)));
                     }
                 }
             }
 
-            for (int memory_idx = 0; memory_idx < memory_pool_size(); memory_idx++)
+            for (int memory_idx = 0; memory_idx < memory_num(); memory_idx++)
             {
+                auto memory_slice_view = memory_view_[memory_idx];
                 for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
                 {
                     for (int height_idx = 0; height_idx < height(); height_idx++)
@@ -294,7 +289,7 @@ namespace deep_learning_lib
                         {
                             image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                                 ((4 + memory_idx) * (height() + 1) + height_idx + 2) * (block_size + 1), block_size, block_size,
-                                static_cast<unsigned char>(255.0 * memory_pool_[memory_idx * depth() * width() * height() + depth_idx * width() * height() + height_idx * width() + width_idx]));
+                                static_cast<unsigned char>(255.0 * memory_slice_view(depth_idx, height_idx, width_idx)));
                         }
                     }
                 }
@@ -356,7 +351,7 @@ namespace deep_learning_lib
         DataLayer& top_layer, bool top_switcher,
         const ConvolveLayer& conv_layer, const float dropout_prob)
     {
-        assert(top_layer.depth() == conv_layer.num_neuron() && top_layer.depth() == this->input_depth());
+        assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
         assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
         assert(top_layer.height() == bottom_layer.height() - conv_layer.neuron_height() + 1 && top_layer.height() == this->input_height());
 
@@ -556,19 +551,19 @@ namespace deep_learning_lib
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    ConvolveLayer::ConvolveLayer(int num_neuron, int num_memory, int neuron_depth, int neuron_height, int neuron_width)
-        : num_neuron_(num_neuron), num_memory_(num_memory),
-        weights_((num_neuron + num_memory) * neuron_depth * neuron_height * neuron_width),
-        weights_view_(extent<4>(std::array<int, 4>{{ num_neuron + num_memory, neuron_depth, neuron_height, neuron_width }}.data()), weights_),
+    ConvolveLayer::ConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
+        : memory_num_(memory_num),
+        weights_((neuron_num + memory_num) * neuron_depth * neuron_height * neuron_width),
+        weights_view_(make_extent(neuron_num + memory_num, neuron_depth, neuron_height, neuron_width), weights_),
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
-        hbias_(num_neuron),
-        hbias_view_(num_neuron, hbias_)
+        hbias_(neuron_num),
+        hbias_view_(neuron_num, hbias_)
     {
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
-        : num_neuron_(other.num_neuron_), num_memory_(other.num_memory_),
+        : neuron_num_(other.neuron_num_), memory_num_(other.memory_num_),
         weights_(std::move(other.weights_)),
         weights_view_(other.weights_view_),
         vbias_(std::move(other.vbias_)),
@@ -581,7 +576,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
         DataLayer& top_layer, bool top_switcher) const
     {
-        assert(top_layer.depth() == this->num_neuron());
+        assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
@@ -645,7 +640,7 @@ namespace deep_learning_lib
         const OutputLayer& output_layer, bool output_switcher,
         DataLayer& top_layer, bool top_switcher) const
     {
-        assert(top_layer.depth() == this->num_neuron() && top_layer.depth() == output_layer.input_depth());
+        assert(top_layer.depth() == this->neuron_num() && top_layer.depth() == output_layer.input_depth());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1 && top_layer.width() == output_layer.input_width());
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1 && top_layer.height() == output_layer.input_height());
 
@@ -716,7 +711,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
         DataLayer& bottom_layer, bool bottom_switcher) const
     {
-        assert(top_layer.depth() == this->num_neuron());
+        assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
@@ -789,7 +784,7 @@ namespace deep_learning_lib
         DataLayer& bottom_layer, bool bottom_switcher,
         OutputLayer& output_layer, bool output_switcher) const
     {
-        assert(top_layer.depth() == this->num_neuron() && top_layer.depth() == output_layer.input_depth());
+        assert(top_layer.depth() == this->neuron_num() && top_layer.depth() == output_layer.input_depth());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1 && top_layer.width() == output_layer.input_width());
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1 && top_layer.height() == output_layer.input_height());
 
