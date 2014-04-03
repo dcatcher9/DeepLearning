@@ -14,26 +14,26 @@ namespace deep_learning_lib
 
     DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
         : memory_num_(memory_num),
-        data_((4 + memory_num) * depth * height * width),
-        data_view_(make_extent(memory_num + 4, depth, height, width), data_),
-        value_view_(data_view_[memory_num]),
-        expect_view_(data_view_[memory_num + 1]),
-        next_value_view_(data_view_[memory_num + 2]),
-        next_expect_view_(data_view_[memory_num + 3]),
+        data_array_(make_extent(memory_num + 4, depth, height, width)),
+        value_view_(data_array_[memory_num]),
+        expect_view_(data_array_[memory_num + 1]),
+        next_value_view_(data_array_[memory_num + 2]),
+        next_expect_view_(data_array_[memory_num + 3]),
         active_prob_(1.0f),
         active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
         // there is no empty array_view support in amp now, so we just map the memory_view_ to the whole data_
         // when the memory_num == 0
-        memory_view_(data_view_.section(make_extent(memory_num == 0 ? 4 : memory_num, depth, height, width))),
+        memory_view_(data_array_.section(make_extent(memory_num == 0 ? 4 : memory_num, depth, height, width))),
+        memory_value_view_(data_array_.view_as<3>(extent<3>((memory_num + 1) * depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
+        fill(data_array_, 0.0f);
     }
 
     DataLayer::DataLayer(DataLayer&& other)
         : memory_num_(other.memory_num_),
-        data_(std::move(other.data_)),
-        data_view_(other.data_view_),
+        data_array_(std::move(other.data_array_)),
         value_view_(other.value_view_),
         expect_view_(other.expect_view_),
         next_value_view_(other.next_value_view_),
@@ -42,6 +42,7 @@ namespace deep_learning_lib
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
         memory_view_(other.memory_view_),
+        memory_value_view_(other.memory_value_view_),
         rand_collection_(other.rand_collection_)
     {
     }

@@ -31,9 +31,8 @@ namespace deep_learning_lib
         // these vectors are initialized before the corresponding array_views
 
         // internal storage for both value, expect_value, next_value, next_expect_value and short term memory.
-        // simple unified storage because they all share the same structure.
-        std::vector<float> data_;
-        concurrency::array_view<float, 4> data_view_;
+        // simple unified storage because they all share the same structure. live on GPU directly.
+        concurrency::array<float, 4> data_array_;
         int memory_num_;
 
         float active_prob_;
@@ -52,6 +51,9 @@ namespace deep_learning_lib
         
         // short term memory view
         concurrency::array_view<float, 4> memory_view_;
+        // short term memory + current value view flatten to 3-d. 
+        // time dimension is folded into depth dimension for easier manipulation in convolve layer. 
+        concurrency::array_view<float, 3> memory_value_view_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -138,7 +140,8 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(const DataLayer& bottom_layer, bool bottom_switcher,
+        int PredictLabel(
+            const DataLayer& bottom_layer, bool bottom_switcher,
             DataLayer& top_layer, bool top_switcher,
             const ConvolveLayer& conv_layer, const float dropout_prob);
 
