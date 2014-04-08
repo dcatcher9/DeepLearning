@@ -22,10 +22,10 @@ namespace deep_learning_lib
         active_prob_(1.0f),
         active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
-        // there is no empty array_view support in amp now, so we just map the memory_view_ to the whole data_
-        // when the memory_num == 0
-        memory_view_(data_array_.section(make_extent(memory_num == 0 ? 4 : memory_num, depth, height, width))),
-        memory_value_view_(data_array_.view_as<3>(extent<3>((memory_num + 1) * depth, height, width))),
+        // there is no empty array_view support in amp now, 
+        // so we just map the memory_view_ to the value view when the memory_num == 0
+        memory_view_(data_array_.section(make_extent(memory_num == 0 ? 1 : memory_num, depth, height, width))),
+        memory_flatten_view_(data_array_.view_as<3>(extent<3>(memory_num * depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
@@ -42,7 +42,7 @@ namespace deep_learning_lib
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
         memory_view_(other.memory_view_),
-        memory_value_view_(other.memory_value_view_),
+        memory_flatten_view_(other.memory_flatten_view_),
         rand_collection_(other.rand_collection_)
     {
     }
@@ -554,8 +554,10 @@ namespace deep_learning_lib
 
     ConvolveLayer::ConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
         : memory_num_(memory_num),
-        weights_((neuron_num + memory_num) * neuron_depth * neuron_height * neuron_width),
-        weights_view_(make_extent(neuron_num + memory_num, neuron_depth, neuron_height, neuron_width), weights_),
+        weights_((memory_num + neuron_num) * neuron_depth * neuron_height * neuron_width),
+        weights_view_(make_extent(memory_num + neuron_num, neuron_depth, neuron_height, neuron_width), weights_),
+        memory_view_(weights_view_.section(make_extent(memory_num, neuron_depth, neuron_height, neuron_width))),
+        neurons_view_(weights_view_.section(make_index(memory_num, 0, 0, 0), make_extent(neuron_num, neuron_depth, neuron_height, neuron_width))),
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
         hbias_(neuron_num),
@@ -564,9 +566,11 @@ namespace deep_learning_lib
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
-        : neuron_num_(other.neuron_num_), memory_num_(other.memory_num_),
+        : memory_num_(other.memory_num_),
         weights_(std::move(other.weights_)),
         weights_view_(other.weights_view_),
+        memory_view_(other.memory_view_),
+        neurons_view_(other.neurons_view_),
         vbias_(std::move(other.vbias_)),
         vbias_view_(other.vbias_view_),
         hbias_(std::move(other.hbias_)),
@@ -575,170 +579,60 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-        DataLayer& top_layer, bool top_switcher) const
+        DataLayer& top_layer, bool top_switcher, const OutputLayer* output_layer, bool output_switcher) const
     {
         assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
-        // readonly
-        array_view<const float, 4> neuron_weights = weights_view_;
-        array_view<const float> hbias = hbias_view_;
-        array_view<const float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        bool output_layer_exist = output_layer != nullptr;
 
-        array_view<const int, 3> top_layer_active = top_layer.active_view_;
+        if (output_layer_exist)
+        {
+            assert(top_layer.depth() == output_layer->input_depth());
+            assert(top_layer.width() == output_layer->input_width());
+            assert(top_layer.height() == output_layer->input_height());
+        }
+
+        // readonly
+        const int bottom_value_depth = bottom_layer.depth();
+        const int bottom_memory_depth = bottom_layer.memory_num() * bottom_value_depth;
+        const int neuron_height = this->neuron_height();
+        const int neuron_width = this->neuron_width();
+        
+        array_view<const float, 4> neuron_weights = neurons_view_;
+        array_view<const float> hbias = hbias_view_;
+        array_view<const float, 3> bottom_value = 
+            bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        
+        
+        array_view<const float, 3> bottom_memories = bottom_layer.memory_flatten_view_;
+        array_view<const int, 3> top_active = top_layer.active_view_;
+        
+        static array_view<float> s_empty_output_value(1);
+        array_view<const float> output_value = !output_layer_exist ? s_empty_output_value
+            : (output_switcher ? output_layer->outputs_view_ : output_layer->next_outputs_view_);
+
+        static array_view<float, 4> s_empty_output_weights(make_extent(1, 1, 1, 1));
+        array_view<const float, 4> output_weights = !output_layer_exist ? s_empty_output_weights
+            : output_layer->weights_view_;
 
         // writeonly
-        array_view<float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
-        array_view<float, 3> top_layer_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
-        top_layer_value.discard_data();
-        top_layer_expect.discard_data();
+        array_view<float, 3> top_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<float, 3> top_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+        top_value.discard_data();
+        top_expect.discard_data();
 
         auto& rand_collection = top_layer.rand_collection_;
 
         // non-tiled version
-        parallel_for_each(top_layer_value.extent,
+        parallel_for_each(top_value.extent,
             [=](index<3> idx) restrict(amp)
         {
-            if (top_layer_active[idx] == 0)
+            if (top_active[idx] == 0)
             {
-                top_layer_expect[idx] = 0.0f;
-                top_layer_value[idx] = 0.0f;
-            }
-            else
-            {
-                array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
-                index<3> base_idx(0, idx[1], idx[2]);
-
-                float result = hbias[idx[0]];
-
-                for (int depth_idx = 0; depth_idx < current_neuron.extent[0]; depth_idx++)
-                {
-                    for (int height_idx = 0; height_idx < current_neuron.extent[1]; height_idx++)
-                    {
-                        for (int width_idx = 0; width_idx < current_neuron.extent[2]; width_idx++)
-                        {
-                            index<3> neuron_idx(depth_idx, height_idx, width_idx);
-                            result += bottom_layer_value[base_idx + neuron_idx] * current_neuron[neuron_idx];
-                        }
-                    }
-                }
-
-                // Logistic activation function. Maybe more types of activation function later.
-                float prob = 1.0f / (1.0f + fast_math::expf(-result));
-                top_layer_expect[idx] = prob;
-                top_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
-            }
-        });
-
-#ifdef DEBUG_SYNC
-        top_layer_value.synchronize();
-        top_layer_expect.synchronize();
-#endif
-    }
-
-    void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-        const OutputLayer& output_layer, bool output_switcher,
-        DataLayer& top_layer, bool top_switcher) const
-    {
-        assert(top_layer.depth() == this->neuron_num() && top_layer.depth() == output_layer.input_depth());
-        assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1 && top_layer.width() == output_layer.input_width());
-        assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1 && top_layer.height() == output_layer.input_height());
-
-        // readonly
-        array_view<const float, 4> neuron_weights = weights_view_;
-        array_view<const float> hbias = hbias_view_;
-        array_view<const float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
-        array_view<const float> output_layer_value = output_switcher ? output_layer.outputs_view_ : output_layer.next_outputs_view_;
-        array_view<const float> output_layer_bias = output_layer.bias_view_;
-        array_view<const float, 4> output_layer_weights = output_layer.weights_view_;
-
-        array_view<const int, 3> top_layer_active = top_layer.active_view_;
-
-        // writeonly
-        array_view<float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
-        array_view<float, 3> top_layer_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
-        top_layer_value.discard_data();
-        top_layer_expect.discard_data();
-
-        auto& rand_collection = top_layer.rand_collection_;
-
-        // non-tiled version
-        parallel_for_each(top_layer_value.extent,
-            [=](index<3> idx) restrict(amp)
-        {
-            if (top_layer_active[idx] == 0)
-            {
-                top_layer_expect[idx] = 0.0f;
-                top_layer_value[idx] = 0.0f;
-            }
-            else
-            {
-                array_view<const float, 3> current_neuron = neuron_weights[idx[0]];// projection
-                index<3> base_idx(0, idx[1], idx[2]);
-
-                float result = hbias[idx[0]];
-
-                for (int output_idx = 0; output_idx < output_layer_value.extent[0]; output_idx++)
-                {
-                    result += output_layer_value[output_idx] * output_layer_weights[output_idx][idx];
-                }
-
-                for (int depth_idx = 0; depth_idx < current_neuron.extent[0]; depth_idx++)
-                {
-                    for (int height_idx = 0; height_idx < current_neuron.extent[1]; height_idx++)
-                    {
-                        for (int width_idx = 0; width_idx < current_neuron.extent[2]; width_idx++)
-                        {
-                            index<3> neuron_idx(depth_idx, height_idx, width_idx);
-                            result += bottom_layer_value[base_idx + neuron_idx] * current_neuron[neuron_idx];
-                        }
-                    }
-                }
-
-                // Logistic activation function. Maybe more types of activation function later.
-                float prob = 1.0f / (1.0f + fast_math::expf(-result));
-                top_layer_expect[idx] = prob;
-                top_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
-            }
-        });
-
-#ifdef DEBUG_SYNC
-        top_layer_value.synchronize();
-        top_layer_expect.synchronize();
-#endif
-    }
-
-    void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
-        DataLayer& bottom_layer, bool bottom_switcher) const
-    {
-        assert(top_layer.depth() == this->neuron_num());
-        assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
-        assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
-
-        // readonly
-        array_view<const float, 4> neuron_weights = weights_view_;
-        array_view<const float> vbias = vbias_view_;
-        array_view<const float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
-
-        array_view<const int, 3> bottom_layer_active = bottom_layer.active_view_;
-
-        // writeonly
-        array_view<float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
-        array_view<float, 3> bottom_layer_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
-        bottom_layer_value.discard_data();
-        bottom_layer_expect.discard_data();
-
-        auto& rand_collection = bottom_layer.rand_collection_;
-
-        // non-tiled version
-        parallel_for_each(bottom_layer_value.extent,
-            [=](index<3> idx) restrict(amp)
-        {
-            if (bottom_layer_active[idx] == 0)
-            {
-                bottom_layer_expect[idx] = 0.0f;
-                bottom_layer_value[idx] = 0.0f;
+                top_expect[idx] = 0.0f;
+                top_value[idx] = 0.0f;
             }
             else
             {
@@ -746,76 +640,91 @@ namespace deep_learning_lib
                 int cur_height_idx = idx[1];
                 int cur_width_idx = idx[2];
 
-                float result = vbias[cur_depth_idx];
+                float result = hbias[cur_depth_idx];
 
-                for (int neuron_idx = 0; neuron_idx < neuron_weights.extent[0]; neuron_idx++)
+                if (output_layer_exist)
                 {
-                    array_view<const float, 3> current_neuron = neuron_weights[neuron_idx];
-
-                    for (int height_idx = 0; height_idx < current_neuron.extent[1]; height_idx++)
+                    for (int output_idx = 0; output_idx < output_value.extent[0]; output_idx++)
                     {
-                        for (int width_idx = 0; width_idx < current_neuron.extent[2]; width_idx++)
+                        result += output_value[output_idx] * output_weights[output_idx][idx];
+                    }
+                }
+
+                array_view<const float, 3> current_neuron = neuron_weights[cur_depth_idx];// projection
+
+                // from bottom memory
+                if (bottom_memory_depth > 0)
+                {
+                    for (int depth_idx = 0; depth_idx < bottom_memory_depth; depth_idx++)
+                    {
+                        for (int height_idx = 0; height_idx < neuron_height; height_idx++)
                         {
-                            // make sure the convolve window fits in the bottom layer
-                            if (cur_width_idx - width_idx >= 0 && cur_height_idx - height_idx >= 0 &&
-                                cur_height_idx - height_idx + current_neuron.extent[1] <= bottom_layer_value.extent[1] &&
-                                cur_width_idx - width_idx + current_neuron.extent[2] <= bottom_layer_value.extent[2])
+                            for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                             {
-                                result += current_neuron(cur_depth_idx, height_idx, width_idx) *
-                                    top_layer_value(neuron_idx, cur_height_idx - height_idx, cur_width_idx - width_idx);
+                                result += bottom_memories(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
+                                    * current_neuron(depth_idx, height_idx, width_idx);
                             }
+                        }
+                    }
+                }
+
+                // from bottom current value
+                for (int depth_idx = 0; depth_idx < bottom_value_depth; depth_idx++)
+                {
+                    for (int height_idx = 0; height_idx < neuron_height; height_idx++)
+                    {
+                        for (int width_idx = 0; width_idx < neuron_width; width_idx++)
+                        {
+                            result += bottom_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
+                                * current_neuron(bottom_memory_depth + depth_idx, height_idx, width_idx);
                         }
                     }
                 }
 
                 // Logistic activation function. Maybe more types of activation function later.
                 float prob = 1.0f / (1.0f + fast_math::expf(-result));
-                bottom_layer_expect[idx] = prob;
-                bottom_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+                top_expect[idx] = prob;
+                top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
             }
         });
-
-#ifdef DEBUG_SYNC
-        bottom_layer_value.synchronize();
-        bottom_layer_expect.synchronize();
-#endif
     }
 
     void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
-        DataLayer& bottom_layer, bool bottom_switcher,
-        OutputLayer& output_layer, bool output_switcher) const
+        DataLayer& bottom_layer, bool bottom_switcher, OutputLayer* output_layer, bool output_switcher) const
     {
-        assert(top_layer.depth() == this->neuron_num() && top_layer.depth() == output_layer.input_depth());
-        assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1 && top_layer.width() == output_layer.input_width());
-        assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1 && top_layer.height() == output_layer.input_height());
+        assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
+        assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
         // readonly
-        array_view<const float, 4> neuron_weights = weights_view_;
-        array_view<const float> vbias = vbias_view_;
-        array_view<const float, 3> top_layer_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
-        array_view<const float> output_layer_bias = output_layer.bias_view_;
-        array_view<const float, 4> output_layer_weights = output_layer.weights_view_;
+        const int neuron_num = this->neuron_num();
+        const int neuron_height = this->neuron_height();
+        const int neuron_width = this->neuron_width();
+        const int bottom_height = bottom_layer.height();
+        const int bottom_width = bottom_layer.width();
 
-        array_view<const int, 3> bottom_layer_active = bottom_layer.active_view_;
+        array_view<const float, 4> neuron_weights = neurons_view_;
+        array_view<const float> vbias = vbias_view_;
+        array_view<const float, 3> top_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+
+        array_view<const int, 3> bottom_active = bottom_layer.active_view_;
 
         // writeonly
-        array_view<float, 3> bottom_layer_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
-        array_view<float, 3> bottom_layer_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
-        bottom_layer_value.discard_data();
-        bottom_layer_expect.discard_data();
-        array_view<float> output_layer_value = output_switcher ? output_layer.outputs_view_ : output_layer.next_outputs_view_;
-        output_layer_value.discard_data();
+        array_view<float, 3> bottom_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<float, 3> bottom_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+        bottom_value.discard_data();
+        bottom_expect.discard_data();
 
         auto& rand_collection = bottom_layer.rand_collection_;
 
         // non-tiled version
-        parallel_for_each(bottom_layer_value.extent,
+        parallel_for_each(bottom_value.extent,
             [=](index<3> idx) restrict(amp)
         {
-            if (bottom_layer_active[idx] == 0)
+            if (bottom_active[idx] == 0)
             {
-                bottom_layer_expect[idx] = 0.0f;
-                bottom_layer_value[idx] = 0.0f;
+                bottom_expect[idx] = 0.0f;
+                bottom_value[idx] = 0.0f;
             }
             else
             {
@@ -823,63 +732,75 @@ namespace deep_learning_lib
                 int cur_height_idx = idx[1];
                 int cur_width_idx = idx[2];
 
+                // make sure the convolve window fits in the bottom layer
+                int height_idx_min = max(0, cur_height_idx - (bottom_height - neuron_height));
+                int height_idx_max = min(neuron_height - 1, cur_height_idx);
+                int width_idx_min = max(0, cur_width_idx - (bottom_width - neuron_width));
+                int width_idx_max = min(neuron_width - 1, cur_width_idx);
+
                 float result = vbias[cur_depth_idx];
 
-                for (int neuron_idx = 0; neuron_idx < neuron_weights.extent[0]; neuron_idx++)
+                for (int neuron_idx = 0; neuron_idx < neuron_num; neuron_idx++)
                 {
                     array_view<const float, 3> current_neuron = neuron_weights[neuron_idx];
 
-                    for (int height_idx = 0; height_idx < current_neuron.extent[1]; height_idx++)
+                    for (int height_idx = height_idx_min; height_idx <= height_idx_max ; height_idx++)
                     {
-                        for (int width_idx = 0; width_idx < current_neuron.extent[2]; width_idx++)
+                        int top_height_idx = cur_height_idx - height_idx;
+                        for (int width_idx = width_idx_min; width_idx <= width_idx_max; width_idx++)
                         {
-                            // make sure the convolve window fits in the bottom layer
-                            if (cur_width_idx - width_idx >= 0 && cur_height_idx - height_idx >= 0 &&
-                                cur_height_idx - height_idx + current_neuron.extent[1] <= bottom_layer_value.extent[1] &&
-                                cur_width_idx - width_idx + current_neuron.extent[2] <= bottom_layer_value.extent[2])
-                            {
-                                result += current_neuron(cur_depth_idx, height_idx, width_idx) *
-                                    top_layer_value(neuron_idx, cur_height_idx - height_idx, cur_width_idx - width_idx);
-                            }
+                            int top_width_idx = cur_width_idx - width_idx;
+                            result += current_neuron(cur_depth_idx, height_idx, width_idx) *
+                                top_value(neuron_idx, top_height_idx, top_width_idx);
                         }
                     }
                 }
 
                 // Logistic activation function. Maybe more types of activation function later.
                 float prob = 1.0f / (1.0f + fast_math::expf(-result));
-                bottom_layer_expect[idx] = prob;
-                bottom_layer_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+                bottom_expect[idx] = prob;
+                bottom_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
             }
         });
 
-        // non-tiled version
-        parallel_for_each(output_layer_value.extent,
-            [=](index<1> idx) restrict(amp)
+        // pass down to output layer
+        if (output_layer != nullptr)
         {
-            float result = output_layer_bias[idx];
+            assert(top_layer.depth() == output_layer->input_depth());
+            assert(top_layer.width() == output_layer->input_width());
+            assert(top_layer.height() == output_layer->input_height());
 
-            const auto& weights = output_layer_weights[idx[0]];
+            array_view<const float> output_bias = output_layer->bias_view_;
+            array_view<const float, 4> output_weights = output_layer->weights_view_;
 
-            for (int depth_idx = 0; depth_idx < top_layer_value.extent[0]; depth_idx++)
+            array_view<float> output_value = output_switcher ? 
+                output_layer->outputs_view_ : output_layer->next_outputs_view_;
+            output_value.discard_data();
+
+            // non-tiled version
+            parallel_for_each(output_value.extent,
+                [=](index<1> idx) restrict(amp)
             {
-                for (int height_idx = 0; height_idx < top_layer_value.extent[1]; height_idx++)
+                float result = output_bias[idx];
+
+                const auto& weights = output_weights[idx[0]];
+
+                for (int depth_idx = 0; depth_idx < top_value.extent[0]; depth_idx++)
                 {
-                    for (int width_idx = 0; width_idx < top_layer_value.extent[2]; width_idx++)
+                    for (int height_idx = 0; height_idx < top_value.extent[1]; height_idx++)
                     {
-                        result += top_layer_value(depth_idx, height_idx, width_idx) 
-                            * weights(depth_idx, height_idx, width_idx);
+                        for (int width_idx = 0; width_idx < top_value.extent[2]; width_idx++)
+                        {
+                            result += top_value(depth_idx, height_idx, width_idx)
+                                * weights(depth_idx, height_idx, width_idx);
+                        }
                     }
                 }
-            }
 
-            output_layer_value[idx] = 1.0f / (1.0f + fast_math::expf(-result));
-        });
-
-#ifdef DEBUG_SYNC
-        bottom_layer_value.synchronize();
-        bottom_layer_expect.synchronize();
-        output_layer_value.synchronize();
-#endif
+                output_value[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+            });
+        }
+        
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate)
@@ -888,10 +809,10 @@ namespace deep_learning_lib
         array_view<float> vbias = vbias_view_;
         array_view<float> hbias = hbias_view_;
 
-        array_view<const float, 3> top_layer_expect = top_layer.expect_view_;
-        array_view<const float, 3> top_layer_next_expect = top_layer.next_expect_view_;
-        array_view<const float, 3> bottom_layer_value = bottom_layer.value_view_;
-        array_view<const float, 3> bottom_layer_next_value = bottom_layer.next_value_view_;
+        array_view<const float, 3> top_expect = top_layer.expect_view_;
+        array_view<const float, 3> top_next_expect = top_layer.next_expect_view_;
+        array_view<const float, 3> bottom_value = bottom_layer.value_view_;
+        array_view<const float, 3> bottom_next_value = bottom_layer.next_value_view_;
 
         // non-tiled version
         parallel_for_each(weights.extent, [=](index<4> idx) restrict(amp)
@@ -900,21 +821,21 @@ namespace deep_learning_lib
 
             int neuron_idx = idx[0];
 
-            for (int top_height_idx = 0; top_height_idx < top_layer_expect.extent[1]; top_height_idx++)
+            for (int top_height_idx = 0; top_height_idx < top_expect.extent[1]; top_height_idx++)
             {
-                for (int top_width_idx = 0; top_width_idx < top_layer_expect.extent[2]; top_width_idx++)
+                for (int top_width_idx = 0; top_width_idx < top_expect.extent[2]; top_width_idx++)
                 {
-                    float top_expect = top_layer_expect(neuron_idx, top_height_idx, top_width_idx);
-                    float top_next_expect = top_layer_next_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
 
-                    float bottom_value = bottom_layer_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
-                    float bottom_next_value = bottom_layer_next_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
+                    float cur_bottom_value = bottom_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
+                    float cur_bottom_next_value = bottom_next_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
 
-                    delta += bottom_value * top_expect - bottom_next_value * top_next_expect;
+                    delta += cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect;
                 }
             }
 
-            weights[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
+            weights[idx] += delta / (top_expect.extent[1] * top_expect.extent[2]) * learning_rate;
         });
 
         parallel_for_each(vbias.extent, [=](index<1> idx) restrict(amp)
@@ -956,12 +877,6 @@ namespace deep_learning_lib
 
             hbias[idx] += delta / (top_layer_expect.extent[1] * top_layer_expect.extent[2]) * learning_rate;
         });
-
-#ifdef DEBUG_SYNC
-        weights.synchronize();
-        vbias.synchronize();
-        hbias.synchronize();
-#endif
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
@@ -1087,6 +1002,8 @@ namespace deep_learning_lib
     bitmap_image ConvolveLayer::GenerateImage() const
     {
         weights_view_.synchronize();
+        memory_view_.synchronize();
+        neurons_view_.synchronize();
         vbias_view_.synchronize();
         hbias_view_.synchronize();
 
@@ -1114,7 +1031,7 @@ namespace deep_learning_lib
 
         if (neuron_width() == 1 && neuron_height() == 1)
         {
-            image.setwidth_height((2 + neuron_depth()) * (block_size + 1), (2 + num_neuron()) * (block_size + 1), true);
+            image.setwidth_height((2 + neuron_depth()) * (block_size + 1), (2 + neuron_num()) * (block_size + 1), true);
 
             for (int i = 0; i < vbias_.size(); i++)
             {
@@ -1130,11 +1047,12 @@ namespace deep_learning_lib
                     static_cast<unsigned char>(std::abs(hbias_[i]) / max_abs_hbias * 255.0));
             }
 
-            for (int neuron_idx = 0; neuron_idx < num_neuron(); neuron_idx++)
+            for (int neuron_idx = 0; neuron_idx < neuron_num(); neuron_idx++)
             {
+                auto neuron_view = neurons_view_[neuron_idx];
                 for (int depth_idx = 0; depth_idx < neuron_depth(); depth_idx++)
                 {
-                    float value = weights_[neuron_idx * neuron_depth() + depth_idx];
+                    float value = neuron_view(depth_idx, 0, 0);
                     image.set_region((2 + depth_idx) * (block_size + 1), (2 + neuron_idx) * (block_size + 1), block_size, block_size,
                         value >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
                         static_cast<unsigned char>(std::abs(value) / max_abs_weight * 255.0));
@@ -1144,7 +1062,7 @@ namespace deep_learning_lib
         else
         {
             image.setwidth_height((2 + neuron_depth() * (neuron_width() + 1)) * (block_size + 1),
-                (2 + num_neuron() * (neuron_height() + 1)) * (block_size + 1), true);
+                (2 + neuron_num() * (neuron_height() + 1)) * (block_size + 1), true);
 
             for (int i = 0; i < vbias_.size(); i++)
             {
@@ -1160,16 +1078,16 @@ namespace deep_learning_lib
                     static_cast<unsigned char>(std::abs(hbias_[i]) / max_abs_hbias * 255.0));
             }
 
-            for (int neuron_idx = 0; neuron_idx < num_neuron(); neuron_idx++)
+            for (int neuron_idx = 0; neuron_idx < neuron_num(); neuron_idx++)
             {
+                auto neuron_view = neurons_view_[neuron_idx];
                 for (int depth_idx = 0; depth_idx < neuron_depth(); depth_idx++)
                 {
                     for (int height_idx = 0; height_idx < neuron_height(); height_idx++)
                     {
                         for (int width_idx = 0; width_idx < neuron_width(); width_idx++)
                         {
-                            float value = weights_[neuron_idx * neuron_depth() * neuron_height() * neuron_width()
-                                + depth_idx * neuron_height() * neuron_width() + height_idx * neuron_width() + width_idx];
+                            float value = neuron_view(depth_idx, height_idx, width_idx);
 
                             image.set_region((2 + width_idx + depth_idx * (neuron_width() + 1)) * (block_size + 1),
                                 (2 + neuron_idx * (neuron_height() + 1) + height_idx) * (block_size + 1), block_size, block_size,

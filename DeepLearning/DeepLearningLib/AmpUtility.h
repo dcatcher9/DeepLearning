@@ -22,7 +22,7 @@ namespace deep_learning_lib
     }
 
     template<typename T, int Rank>
-    void fill(concurrency::array<T, Rank>& arr, T initValue) 
+    inline void fill(concurrency::array<T, Rank>& arr, T initValue)
     {
         concurrency::parallel_for_each(arr.extent,
             [&arr, initValue](concurrency::index<Rank> idx) restrict(amp)
@@ -32,7 +32,7 @@ namespace deep_learning_lib
     }
 
     template<typename T, int Rank>
-    void fill(concurrency::array_view<T, Rank>& arr, T initValue) 
+    inline void fill(concurrency::array_view<T, Rank>& arr, T initValue)
     {
         concurrency::parallel_for_each(arr.extent,
             [=](concurrency::index<Rank> idx) restrict(amp)
@@ -41,9 +41,24 @@ namespace deep_learning_lib
         });
     }
 
-    concurrency::extent<4> make_extent(int e0, int e1, int e2, int e3)
+    inline concurrency::extent<4> make_extent(int e0, int e1, int e2, int e3)
     {
         return concurrency::extent<4>(std::array<int, 4>{{e0, e1, e2, e3}}.data());
+    }
+
+    inline concurrency::index<4> make_index(int e0, int e1, int e2, int e3)
+    {
+        return concurrency::index<4>(std::array<int, 4>{{e0, e1, e2, e3}}.data());
+    }
+
+    inline int max(const int a, const int b) restrict(amp)
+    {
+        return a >= b ? a : b;
+    }
+
+    inline int min(const int a, const int b) restrict(amp)
+    {
+        return a <= b ? a : b;
     }
 }
 

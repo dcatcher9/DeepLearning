@@ -51,9 +51,9 @@ namespace deep_learning_lib
         
         // short term memory view
         concurrency::array_view<float, 4> memory_view_;
-        // short term memory + current value view flatten to 3-d. 
+        // short term memory flatten to 3-d. 
         // time dimension is folded into depth dimension for easier manipulation in convolve layer. 
-        concurrency::array_view<float, 3> memory_value_view_;
+        concurrency::array_view<float, 3> memory_flatten_view_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -169,10 +169,10 @@ namespace deep_learning_lib
         int memory_num_;
 
     public:
-        // traditional neurons weight view
-        concurrency::array_view<float, 4>   neurons_view_;
         // long term memory view
         concurrency::array_view<float, 4>   memory_view_;
+        // traditional neurons weight view
+        concurrency::array_view<float, 4>   neurons_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
@@ -206,18 +206,12 @@ namespace deep_learning_lib
         }
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-            DataLayer& top_layer, bool top_switcher) const;
-
-        void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-            const OutputLayer& output_layer, bool output_switcher,
-            DataLayer& top_layer, bool top_switcher) const;
-
-        void PassDown(const DataLayer& top_layer, bool top_switcher,
-            DataLayer& bottom_layer, bool bottom_switcher) const;
+            DataLayer& top_layer, bool top_switcher,
+            const OutputLayer* output_layer = nullptr, bool output_switcher = false) const;
 
         void PassDown(const DataLayer& top_layer, bool top_switcher,
             DataLayer& bottom_layer, bool bottom_switcher,
-            OutputLayer& output_layer, bool output_switcher) const;
+            OutputLayer* output_layer = nullptr, bool output_switcher = false) const;
 
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate);
 
