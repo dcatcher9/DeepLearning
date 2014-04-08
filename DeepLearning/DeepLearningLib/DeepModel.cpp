@@ -24,8 +24,8 @@ namespace deep_learning_lib
         active_view_(value_view_.extent, active_),
         // there is no empty array_view support in amp now, 
         // so we just map the memory_view_ to the value view when the memory_num == 0
-        memory_view_(data_array_.section(make_extent(memory_num == 0 ? 1 : memory_num, depth, height, width))),
-        memory_flatten_view_(data_array_.view_as<3>(extent<3>(memory_num * depth, height, width))),
+        memory_view_(data_array_.section(make_extent(std::max(1, memory_num), depth, height, width))),
+        memory_flatten_view_(data_array_.view_as<3>(extent<3>(std::max(1, memory_num) * depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
@@ -556,7 +556,8 @@ namespace deep_learning_lib
         : memory_num_(memory_num),
         weights_((memory_num + neuron_num) * neuron_depth * neuron_height * neuron_width),
         weights_view_(make_extent(memory_num + neuron_num, neuron_depth, neuron_height, neuron_width), weights_),
-        memory_view_(weights_view_.section(make_extent(memory_num, neuron_depth, neuron_height, neuron_width))),
+        // when memory_num == 0, we just use the neuron weights
+        memory_view_(memory_num == 0 ? weights_view_ : weights_view_.section(make_extent(memory_num, neuron_depth, neuron_height, neuron_width))),
         neurons_view_(weights_view_.section(make_index(memory_num, 0, 0, 0), make_extent(neuron_num, neuron_depth, neuron_height, neuron_width))),
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
@@ -805,25 +806,33 @@ namespace deep_learning_lib
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate)
     {
-        array_view<float, 4> weights = weights_view_;
+        // parameters for training
+        array_view<float, 4> neuron_weights = this->neurons_view_;
+        array_view<float, 4> long_memory_weights = this->memory_view_;
+
         array_view<float> vbias = vbias_view_;
         array_view<float> hbias = hbias_view_;
+
+        // readonly
+        const int top_height = top_layer.height();
+        const int top_width = top_layer.width();
 
         array_view<const float, 3> top_expect = top_layer.expect_view_;
         array_view<const float, 3> top_next_expect = top_layer.next_expect_view_;
         array_view<const float, 3> bottom_value = bottom_layer.value_view_;
         array_view<const float, 3> bottom_next_value = bottom_layer.next_value_view_;
+        array_view<const float, 3> bottom_short_memory = bottom_layer.memory_flatten_view_;
 
         // non-tiled version
-        parallel_for_each(weights.extent, [=](index<4> idx) restrict(amp)
+        parallel_for_each(neuron_weights.extent, [=](index<4> idx) restrict(amp)
         {
             float delta = 0.0f;
 
             int neuron_idx = idx[0];
 
-            for (int top_height_idx = 0; top_height_idx < top_expect.extent[1]; top_height_idx++)
+            for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
             {
-                for (int top_width_idx = 0; top_width_idx < top_expect.extent[2]; top_width_idx++)
+                for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
                 {
                     float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
                     float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
@@ -835,8 +844,13 @@ namespace deep_learning_lib
                 }
             }
 
-            weights[idx] += delta / (top_expect.extent[1] * top_expect.extent[2]) * learning_rate;
+            neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
+
+        // short term memory weights update
+        if (bottom_layer.memory_num() > 0)
+        {
+        }
 
         parallel_for_each(vbias.extent, [=](index<1> idx) restrict(amp)
         {

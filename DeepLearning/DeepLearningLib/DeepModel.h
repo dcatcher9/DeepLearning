@@ -151,9 +151,10 @@ namespace deep_learning_lib
     };
 
     // Contains a collection of neurons, which is 3-dimensional according to data layer.
-    // So the model layer has 4-dimensional structure. Responsible for processing data layer
-    // using neurons within and adjusting neuron weights during learning. 
-    // Suppose dropout with fixed probability.
+    // So the model layer has 4-dimensional structure. 
+    // 1. Responsible for processing data layer using neurons within and adjusting neuron weights during learning.
+    // 2. Responsible for long term memory logic.
+    // 3. Suppose dropout with fixed probability.
     class ConvolveLayer
     {
     private:
