@@ -816,6 +816,7 @@ namespace deep_learning_lib
         // readonly
         const int top_height = top_layer.height();
         const int top_width = top_layer.width();
+        const int bottom_memory_size = bottom_layer.memory_num() * bottom_layer.depth();
 
         array_view<const float, 3> top_expect = top_layer.expect_view_;
         array_view<const float, 3> top_next_expect = top_layer.next_expect_view_;
@@ -829,28 +830,48 @@ namespace deep_learning_lib
             float delta = 0.0f;
 
             int neuron_idx = idx[0];
+            int neuron_depth_idx = idx[1];
+            int neuron_height_idx = idx[2];
+            int neuron_width_idx = idx[3];
 
-            for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+            if (neuron_idx < bottom_memory_size)
             {
-                for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                // bottom memory, depth index starts from 0.
+                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
                 {
-                    float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
-                    float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
+                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                    {
+                        float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
+                        float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
 
-                    float cur_bottom_value = bottom_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
-                    float cur_bottom_next_value = bottom_next_value(idx[1], idx[2] + top_height_idx, idx[3] + top_width_idx);
+                        float cur_bottom_value = bottom_short_memory(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
 
-                    delta += cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect;
+                        delta += cur_bottom_value * (cur_top_expect - cur_top_next_expect);
+                    }
                 }
             }
+            else
+            {
+                // bottom value, depth index starts from bottom_memory_size
+                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+                {
+                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                    {
+                        float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
+                        float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
 
+                        float cur_bottom_value = bottom_value(neuron_depth_idx - bottom_memory_size, 
+                            neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+                        float cur_bottom_next_value = bottom_next_value(neuron_depth_idx - bottom_memory_size,
+                            neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+
+                        delta += cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect;
+                    }
+                }
+            }
+            
             neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
-
-        // short term memory weights update
-        if (bottom_layer.memory_num() > 0)
-        {
-        }
 
         parallel_for_each(vbias.extent, [=](index<1> idx) restrict(amp)
         {
