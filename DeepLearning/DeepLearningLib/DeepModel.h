@@ -214,10 +214,9 @@ namespace deep_learning_lib
             DataLayer& bottom_layer, bool bottom_switcher,
             OutputLayer* output_layer = nullptr, bool output_switcher = false) const;
 
-        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate);
-
-        void Train(const DataLayer& bottom_layer, OutputLayer& output_layer, const DataLayer& top_layer,
-            float learning_rate, bool discriminative = false);
+        // generative or discriminative training
+        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
+            OutputLayer* output_layer = nullptr, bool discriminative_training = false);
 
         void RandomizeParams(unsigned int seed);
 
@@ -252,22 +251,16 @@ namespace deep_learning_lib
         // Disable copy constructor
         DeepModel(const DeepModel&) = delete;
 
-        void AddDataLayer(int depth, int height, int width, int memory_pool_size = 10);
-        void AddConvolveLayer(int num_neuron, int neuron_depth, int neuron_height, int neuron_width);
+        void AddDataLayer(int memory_num, int depth, int height, int width);
+        void AddConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         void AddOutputLayer(int data_layer_idx, int output_num);
 
         void PassUp(const std::vector<float>& data);
         void PassDown();
 
-        float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob);
-        float TrainLayer(const std::vector<float>& data, const int label, int layer_idx,
-            float learning_rate, float dropout_prob, bool discriminative = false);
-
-        void TrainLayer(const std::vector<const std::vector<float>>& dataset,
-            int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count);
-        void TrainLayer(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
-            int layer_idx, int mini_batch_size, float learning_rate, float dropout_prob, int iter_count, bool discriminative = false);
-
+        float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob,
+            const int label = -1, bool discriminative_training = false);
+        
         int PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob);
 
         float Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
