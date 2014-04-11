@@ -17,9 +17,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="DeepModel.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="amp_rand_collection.h">
       <Filter>Tools</Filter>
     </ClInclude>
@@ -42,6 +39,9 @@
       <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="AmpUtility.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DeepModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
