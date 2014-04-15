@@ -50,10 +50,10 @@ namespace deep_learning_lib
         concurrency::array_view<int, 3>     active_view_;
         
         // short term memory view
-        concurrency::array_view<float, 4> memory_view_;
+        concurrency::array_view<float, 4>   memory_view_;
         // short term memory flatten to 3-d. 
         // time dimension is folded into depth dimension for easier manipulation in convolve layer. 
-        concurrency::array_view<float, 3> memory_flatten_view_;
+        concurrency::array_view<float, 3>   memory_flatten_view_;
 
         tinymt_collection<3> rand_collection_;
 

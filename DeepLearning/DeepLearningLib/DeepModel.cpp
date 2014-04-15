@@ -617,7 +617,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
         DataLayer& top_layer, bool top_switcher, const OutputLayer* output_layer, bool output_switcher) const
     {
-        assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.depth() == this->neuron_num() + this->memory_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 
@@ -641,7 +641,7 @@ namespace deep_learning_lib
         array_view<const float, 3> bottom_value =
             bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
 
-
+        // short term memory
         array_view<const float, 3> bottom_memories = bottom_layer.memory_flatten_view_;
         array_view<const int, 3> top_active = top_layer.active_view_;
 
