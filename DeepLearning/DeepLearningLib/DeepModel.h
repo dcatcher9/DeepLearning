@@ -51,9 +51,12 @@ namespace deep_learning_lib
         
         // short term memory view
         concurrency::array_view<float, 4>   memory_view_;
-        // short term memory flatten to 3-d. 
+        // short term memory flatten to 3-d + value.
         // time dimension is folded into depth dimension for easier manipulation in convolve layer. 
-        concurrency::array_view<float, 3>   memory_flatten_view_;
+        concurrency::array_view<float, 3>   memory_value_view_;
+
+        concurrency::array_view<float, 4>   next_memory_view_;
+        concurrency::array_view<float, 3>   next_memory_value_view_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -88,7 +91,7 @@ namespace deep_learning_lib
         // Memorize current value if necessary. If a memory match is found, it will replace the current next value.
         // Data-driven, Nonparametric. Memorization is a kind of learning.
         // Return false if current value is already well learned thus not memorized.
-        bool Memorize();
+        //bool Memorize();
 
         bitmap_image GenerateImage() const;
     };

@@ -16,18 +16,20 @@ namespace deep_learning_lib
 
     DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
         : memory_num_(memory_num),
-        data_array_(make_extent(memory_num + 4, depth, height, width)),
+        data_array_(make_extent(memory_num + 2 + memory_num + 2, depth, height, width)),
         value_view_(data_array_[memory_num]),
         expect_view_(data_array_[memory_num + 1]),
-        next_value_view_(data_array_[memory_num + 2]),
-        next_expect_view_(data_array_[memory_num + 3]),
+        next_value_view_(data_array_[memory_num * 2 + 2]),
+        next_expect_view_(data_array_[memory_num * 2 + 3]),
         active_prob_(1.0f),
         active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
         // there is no empty array_view support in amp now, 
         // so we just map the memory_view_ to the value view when the memory_num == 0
         memory_view_(data_array_.section(make_extent(std::max(1, memory_num), depth, height, width))),
-        memory_flatten_view_(data_array_.view_as<3>(extent<3>(std::max(1, memory_num) * depth, height, width))),
+        next_memory_view_(data_array_.section(make_index(memory_num + 2, 0, 0, 0), make_extent(std::max(1, memory_num), depth, height, width))),
+        memory_value_view_(data_array_.view_as<3>(extent<3>((memory_num + 1) * depth, height, width))),
+        next_memory_value_view_(data_array_.reinterpret_as<float>().section(index<1>((memory_num + 2) * depth * height * width)).view_as<3>(extent<3>((memory_num + 1) * depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
@@ -44,7 +46,9 @@ namespace deep_learning_lib
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
         memory_view_(other.memory_view_),
-        memory_flatten_view_(other.memory_flatten_view_),
+        next_memory_view_(other.next_memory_view_),
+        memory_value_view_(other.memory_value_view_),
+        next_memory_value_view_(other.next_memory_value_view_),
         rand_collection_(other.rand_collection_)
     {
     }
@@ -97,84 +101,84 @@ namespace deep_learning_lib
         return std::sqrtf(result(0));
     }
 
-    bool DataLayer::Memorize()
-    {
-        array_view<float> diffs_view(memory_pool_size());
+    //bool DataLayer::Memorize()
+    //{
+    //    array_view<float> diffs_view(memory_pool_size());
 
-        array_view<const float, 3> value_view = value_view_;
-        array_view<const float, 4> memory_pool_view = memory_pool_view_;
+    //    array_view<const float, 3> value_view = value_view_;
+    //    array_view<const float, 4> memory_pool_view = memory_pool_view_;
 
-        parallel_for_each(value_view.extent,
-            [=](index<3> idx) restrict(amp)
-        {
-            for (int i = 0; i < diffs_view.extent[0]; i++)
-            {
-                float diff = memory_pool_view[i][idx] - value_view[idx];
-                atomic_fetch_add(&diffs_view(i), diff * diff);
-            }
-        });
+    //    parallel_for_each(value_view.extent,
+    //        [=](index<3> idx) restrict(amp)
+    //    {
+    //        for (int i = 0; i < diffs_view.extent[0]; i++)
+    //        {
+    //            float diff = memory_pool_view[i][idx] - value_view[idx];
+    //            atomic_fetch_add(&diffs_view(i), diff * diff);
+    //        }
+    //    });
 
-        float min_diff = std::numeric_limits<float>::max();
-        int min_idx = -1;
+    //    float min_diff = std::numeric_limits<float>::max();
+    //    int min_idx = -1;
 
-        for (int i = 0; i < diffs_view.extent[0]; i++)
-        {
-            float diff = std::sqrtf(diffs_view(i));
-            if (diff < min_diff)
-            {
-                min_diff = diff;
-                min_idx = i;
-            }
-        }
+    //    for (int i = 0; i < diffs_view.extent[0]; i++)
+    //    {
+    //        float diff = std::sqrtf(diffs_view(i));
+    //        if (diff < min_diff)
+    //        {
+    //            min_diff = diff;
+    //            min_idx = i;
+    //        }
+    //    }
 
-        float recon_error = ReconstructionError();
+    //    float recon_error = ReconstructionError();
 
-        // memory refreshment logic, adaboost style
-        if (recon_error <= min_diff)
-        {
-            // current value is too new or already well recognized. 
-            int min_intensity_idx = -1;
-            float min_intensity = std::numeric_limits<float>::max();
+    //    // memory refreshment logic, adaboost style
+    //    if (recon_error <= min_diff)
+    //    {
+    //        // current value is too new or already well recognized. 
+    //        int min_intensity_idx = -1;
+    //        float min_intensity = std::numeric_limits<float>::max();
 
-            for (int j = 0; j < memory_intensity_.size(); j++)
-            {
-                float& intensity = memory_intensity_[j];
+    //        for (int j = 0; j < memory_intensity_.size(); j++)
+    //        {
+    //            float& intensity = memory_intensity_[j];
 
-                intensity *= kMemoryDecayRate;
+    //            intensity *= kMemoryDecayRate;
 
-                if (intensity < min_intensity)
-                {
-                    min_intensity = intensity;
-                    min_intensity_idx = j;
-                }
-            }
+    //            if (intensity < min_intensity)
+    //            {
+    //                min_intensity = intensity;
+    //                min_intensity_idx = j;
+    //            }
+    //        }
 
-            if (recon_error > min_intensity)
-            {
-                // replace existing min_intensity_idx
-                value_view_.copy_to(memory_pool_view_[min_intensity_idx]);
-                memory_intensity_[min_intensity_idx] = recon_error;
-                return true;
-            }
-            // discard current value since the model is already doing well with it.
-        }
-        else // recon_error > min_diff
-        {
-            // the model is doing worse at current value than just using the closest memory
-            // so we replace the output with the closest memory
-            memory_pool_view_[min_idx].copy_to(next_value_view_);
+    //        if (recon_error > min_intensity)
+    //        {
+    //            // replace existing min_intensity_idx
+    //            value_view_.copy_to(memory_pool_view_[min_intensity_idx]);
+    //            memory_intensity_[min_intensity_idx] = recon_error;
+    //            return true;
+    //        }
+    //        // discard current value since the model is already doing well with it.
+    //    }
+    //    else // recon_error > min_diff
+    //    {
+    //        // the model is doing worse at current value than just using the closest memory
+    //        // so we replace the output with the closest memory
+    //        memory_pool_view_[min_idx].copy_to(next_value_view_);
 
-            if (recon_error > memory_intensity_[min_idx])
-            {
-                // current bad value is a more worthy case to remember, so we replace the closest memory with current value
-                value_view_.copy_to(memory_pool_view_[min_idx]);
-                memory_intensity_[min_idx] = recon_error;
-                return true;
-            }
-        }
+    //        if (recon_error > memory_intensity_[min_idx])
+    //        {
+    //            // current bad value is a more worthy case to remember, so we replace the closest memory with current value
+    //            value_view_.copy_to(memory_pool_view_[min_idx]);
+    //            memory_intensity_[min_idx] = recon_error;
+    //            return true;
+    //        }
+    //    }
 
-        return false;
-    }
+    //    return false;
+    //}
 
     bitmap_image DataLayer::GenerateImage() const
     {
@@ -391,7 +395,7 @@ namespace deep_learning_lib
             int cur_width_idx = idx[2];
 
             array_view<const float, 3> current_neuron = neuron_weights[cur_depth_idx];// projection
-            
+
             float result = hbias[cur_depth_idx];
 
             // score from memory
@@ -631,8 +635,6 @@ namespace deep_learning_lib
         }
 
         // readonly
-        const int bottom_value_depth = bottom_layer.depth();
-        const int bottom_memory_depth = bottom_layer.memory_num() * bottom_value_depth;
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
 
@@ -641,10 +643,14 @@ namespace deep_learning_lib
         array_view<const float, 3> bottom_value =
             bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
 
-        // short term memory
-        array_view<const float, 3> bottom_memories = bottom_layer.memory_flatten_view_;
         array_view<const int, 3> top_active = top_layer.active_view_;
 
+        // short term memory + value
+        array_view<const float, 3> bottom_memory_value =
+            bottom_switcher ? bottom_layer.memory_value_view_ : bottom_layer.next_memory_value_view_;
+        const int bottom_memory_value_depth = bottom_memory_value.extent[0];
+
+        // output layer
         static array_view<float> s_empty_output_value(1);
         array_view<const float> output_value = !output_layer_exist ? s_empty_output_value
             : (output_switcher ? output_layer->outputs_view_ : output_layer->next_outputs_view_);
@@ -688,28 +694,14 @@ namespace deep_learning_lib
 
                 array_view<const float, 3> current_neuron = neuron_weights[cur_depth_idx];// projection
 
-                // from bottom memory
-                for (int depth_idx = 0; depth_idx < bottom_memory_depth; depth_idx++)
+                for (int depth_idx = 0; depth_idx < bottom_memory_value_depth; depth_idx++)
                 {
                     for (int height_idx = 0; height_idx < neuron_height; height_idx++)
                     {
                         for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                         {
-                            result += bottom_memories(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
+                            result += bottom_memory_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
                                 * current_neuron(depth_idx, height_idx, width_idx);
-                        }
-                    }
-                }
-
-                // from bottom current value
-                for (int depth_idx = 0; depth_idx < bottom_value_depth; depth_idx++)
-                {
-                    for (int height_idx = 0; height_idx < neuron_height; height_idx++)
-                    {
-                        for (int width_idx = 0; width_idx < neuron_width; width_idx++)
-                        {
-                            result += bottom_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
-                                * current_neuron(bottom_memory_depth + depth_idx, height_idx, width_idx);
                         }
                     }
                 }
