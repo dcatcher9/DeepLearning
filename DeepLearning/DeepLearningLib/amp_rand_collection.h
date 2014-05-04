@@ -53,4 +53,22 @@ public:
     {
         return m_rng_av[idx];
     }
+
+    _rng_type& operator[] (int l0) const restrict(amp)
+    {
+        static_assert(_Rank == 1, "rank must be 1");
+        return m_rng_av(l0);
+    }
+
+    _rng_type& operator[] (int l0, int l1) const restrict(amp)
+    {
+        static_assert(_Rank == 2, "rank must be 2");
+        return m_rng_av(l0, l1);
+    }
+
+    _rng_type& operator[] (int l0, int l1, int l2) const restrict(amp)
+    {
+        static_assert(_Rank == 3, "rank must be 3");
+        return m_rng_av(l0, l1, l2);
+    }
 };

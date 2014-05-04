@@ -51,12 +51,6 @@ namespace deep_learning_lib
         
         // short term memory view
         concurrency::array_view<float, 4>   memory_view_;
-        // short term memory flatten to 3-d + value.
-        // time dimension is folded into depth dimension for easier manipulation in convolve layer. 
-        concurrency::array_view<float, 3>   memory_value_view_;
-
-        concurrency::array_view<float, 4>   next_memory_view_;
-        concurrency::array_view<float, 3>   next_memory_value_view_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -153,8 +147,8 @@ namespace deep_learning_lib
         bitmap_image GenerateImage() const;
     };
 
-    // Contains a collection of neurons, which is 3-dimensional according to data layer.
-    // So the model layer has 4-dimensional structure. 
+    // Contains a collection of neurons, which is 4-dimensional according to data layer.
+    // So the model layer has 5-dimensional structure. 
     // 1. Responsible for processing data layer using neurons within and adjusting neuron weights during learning.
     // 2. Responsible for long term memory logic.
     // 3. Suppose dropout with fixed probability.
@@ -164,33 +158,39 @@ namespace deep_learning_lib
         // traditional neuron weights and longterm memory weights are both contained in this vector
         // since they share the same structure
         std::vector<float> weights_;
-        concurrency::array_view<float, 4> weights_view_;
+        concurrency::array_view<float, 5> weights_view_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
 
-        int memory_num_;
+        int longterm_memory_num_;
+        int shortterm_memory_num_;
 
     public:
         // long term memory view
-        concurrency::array_view<float, 4>   memory_view_;
+        concurrency::array_view<float, 5>   memory_view_;
         // traditional neurons weight view
-        concurrency::array_view<float, 4>   neurons_view_;
+        concurrency::array_view<float, 5>   neurons_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
         concurrency::array_view<float>      hbias_view_;
 
     public:
-        ConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        ConvolveLayer(int longterm_memory_num, int neuron_num, 
+            int shortterm_memory_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
         
-        inline int memory_num() const
+        inline int longterm_memory_num() const
         {
-            return memory_num_;
+            return longterm_memory_num_;
+        }
+        inline int shortterm_memory_num() const
+        {
+            return shortterm_memory_num_;
         }
         inline int neuron_num() const
         {
