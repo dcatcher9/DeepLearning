@@ -596,6 +596,7 @@ namespace deep_learning_lib
             weights_view_.section(make_index(neuron_num, 0, 0, 0, 0), 
                 make_extent(longterm_memory_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width))),
         neurons_view_(weights_view_.section(make_extent(neuron_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width))),
+        value_neurons_view_(weights_view_.section(make_extent(neuron_num, 1, neuron_depth, neuron_height, neuron_width))),
         // no vbias for short-term memory because they are not generative
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
@@ -611,6 +612,7 @@ namespace deep_learning_lib
         weights_view_(other.weights_view_),
         memory_view_(other.memory_view_),
         neurons_view_(other.neurons_view_),
+        value_neurons_view_(other.value_neurons_view_),
         vbias_(std::move(other.vbias_)),
         vbias_view_(other.vbias_view_),
         hbias_(std::move(other.hbias_)),
@@ -847,6 +849,18 @@ namespace deep_learning_lib
 
     }
 
+    void ConvolveLayer::SuppressMemory(DataLayer& top_layer, bool top_switcher,
+        const DataLayer& bottom_layer, bool bottom_switcher) const
+    {
+        // readonly
+        array_view<const float, 3> bottom_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<const float, 3> bottom_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+
+        // read write
+        array_view<float, 3> top_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<float, 3> top_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+    }
+
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
         OutputLayer* output_layer, bool discriminative_training)
     {
@@ -864,61 +878,61 @@ namespace deep_learning_lib
         array_view<const float, 4> bottom_memories = bottom_layer.memory_view_;
 
         // parameters to train
-        array_view<float, 5> neuron_weights = this->neurons_view_;
+        array_view<float, 5> value_neuron_weights = this->value_neurons_view_;
         array_view<float, 5> longterm_memory_weights = this->memory_view_;
 
         array_view<float> vbias = vbias_view_;
         array_view<float> hbias = hbias_view_;
 
         // non-tiled version
-        parallel_for_each(neuron_weights.extent, [=](index<5> idx) restrict(amp)
+        parallel_for_each(value_neuron_weights.extent, [=](index<5> idx) restrict(amp)
         {
             float delta = 0.0f;
 
             int neuron_idx = idx[0];
-            int neuron_depth_idx = idx[1];
-            int neuron_height_idx = idx[2];
-            int neuron_width_idx = idx[3];
+            //int short_memory_idx = idx[1]; should always = 0
+            int neuron_depth_idx = idx[2];
+            int neuron_height_idx = idx[3];
+            int neuron_width_idx = idx[4];
 
-            if (neuron_depth_idx < bottom_memory_size)
+            for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
             {
-                // bottom memory, depth index starts from 0.
-                // we train memory weights in a discriminative way for simplicity.
-                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+                for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
                 {
-                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-                    {
-                        float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
-                        float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
 
-                        float cur_bottom_value = bottom_short_memory(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+                    float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+                    float cur_bottom_next_value = discriminative_training ? cur_bottom_value :
+                        bottom_next_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
 
-                        delta += cur_bottom_value * (cur_top_expect - cur_top_next_expect);
-                    }
-                }
-            }
-            else
-            {
-                // bottom value, depth index starts from bottom_memory_size
-                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-                {
-                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-                    {
-                        float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
-                        float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
-
-                        float cur_bottom_value = bottom_value(neuron_depth_idx - bottom_memory_size,
-                            neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
-                        float cur_bottom_next_value = discriminative_training ? cur_bottom_value :
-                            bottom_next_value(neuron_depth_idx - bottom_memory_size,
-                            neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
-
-                        delta += cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect;
-                    }
+                    delta += cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect;
                 }
             }
 
-            neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
+            //if (neuron_depth_idx < bottom_memory_size)
+            //{
+            //    // bottom memory, depth index starts from 0.
+            //    // we train memory weights in a discriminative way for simplicity.
+            //    for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+            //    {
+            //        for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+            //        {
+            //            float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
+            //            float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
+
+            //            float cur_bottom_value = bottom_short_memory(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+
+            //            delta += cur_bottom_value * (cur_top_expect - cur_top_next_expect);
+            //        }
+            //    }
+            //}
+            //else
+            //{
+            //    
+            //}
+
+            value_neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
 
         // update vbias, only for generative training

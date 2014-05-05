@@ -170,8 +170,10 @@ namespace deep_learning_lib
     public:
         // long term memory view
         concurrency::array_view<float, 5>   memory_view_;
-        // traditional neurons weight view
+        // traditional neurons weight view, containing weights for short-term memories in bottom layer
         concurrency::array_view<float, 5>   neurons_view_;
+        // neurons weight view only for value layer in bottom layer
+        concurrency::array_view<float, 5>   value_neurons_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
@@ -198,15 +200,15 @@ namespace deep_learning_lib
         }
         inline int neuron_depth() const
         {
-            return neurons_view_.extent[1];
+            return neurons_view_.extent[2];
         }
         inline int neuron_height() const
         {
-            return neurons_view_.extent[2];
+            return neurons_view_.extent[3];
         }
         inline int neuron_width() const
         {
-            return neurons_view_.extent[3];
+            return neurons_view_.extent[4];
         }
 
         void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
@@ -216,6 +218,10 @@ namespace deep_learning_lib
         void PassDown(const DataLayer& top_layer, bool top_switcher,
             DataLayer& bottom_layer, bool bottom_switcher,
             OutputLayer* output_layer = nullptr, bool output_switcher = false) const;
+
+        // Not all long-term memory activations are helpful, let's filter these harmful memories.
+        void SuppressMemory(DataLayer& top_layer, bool top_switcher, 
+            const DataLayer& bottom_layer, bool bottom_switcher) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
