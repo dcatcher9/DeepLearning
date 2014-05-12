@@ -17,17 +17,19 @@ namespace deep_learning_lib
     DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
         : memory_num_(memory_num),
         // put memory at the end
-        data_array_(make_extent(4 + memory_num, depth, height, width)),
+        data_array_(make_extent(6 + memory_num, depth, height, width)),
         value_view_(data_array_[0]),
         expect_view_(data_array_[1]),
         next_value_view_(data_array_[2]),
         next_expect_view_(data_array_[3]),
+        temp_value_view_(data_array_[4]),
+        temp_expect_view_(data_array_[5]),
         active_prob_(1.0f),
         active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
         // there is no empty array_view support in amp now, 
         // so we just map the memory_view_ to the whole data view when the memory_num == 0
-        memory_view_(memory_num == 0 ? data_array_ : data_array_.section(make_index(4, 0, 0, 0), make_extent(memory_num, depth, height, width))),
+        memory_view_(memory_num == 0 ? data_array_ : data_array_.section(make_index(6, 0, 0, 0), make_extent(memory_num, depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
@@ -40,6 +42,8 @@ namespace deep_learning_lib
         expect_view_(other.expect_view_),
         next_value_view_(other.next_value_view_),
         next_expect_view_(other.next_expect_view_),
+        temp_value_view_(other.temp_value_view_),
+        temp_expect_view_(other.temp_expect_view_),
         active_prob_(other.active_prob_),
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
@@ -620,8 +624,8 @@ namespace deep_learning_lib
     {
     }
 
-    void ConvolveLayer::PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-        DataLayer& top_layer, bool top_switcher, const OutputLayer* output_layer, bool output_switcher) const
+    void ConvolveLayer::PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
+        DataLayer& top_layer, DataSlot top_slot, const OutputLayer* output_layer, DataSlot output_slot) const
     {
         assert(top_layer.depth() == this->neuron_num() + this->longterm_memory_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
@@ -643,7 +647,7 @@ namespace deep_learning_lib
 
         array_view<const float, 5> neuron_weights = neurons_view_;
         array_view<const float> hbias = hbias_view_;
-        array_view<const float, 3> bottom_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
+        array_view<const float, 3> bottom_value = bottom_layer[bottom_slot].first;
         const int bottom_memory_num = bottom_layer.memory_num();
         array_view<const float, 4> bottom_memories = bottom_layer.memory_view_;
 
@@ -651,16 +655,17 @@ namespace deep_learning_lib
 
         // output layer
         static array_view<float> s_empty_output_value(1);
-        array_view<const float> output_value = !output_layer_exist ? s_empty_output_value
-            : (output_switcher ? output_layer->outputs_view_ : output_layer->next_outputs_view_);
+        array_view<const float> output_value = !output_layer_exist ? s_empty_output_value : (*output_layer)[output_slot];
 
         static array_view<float, 4> s_empty_output_weights(make_extent(1, 1, 1, 1));
         array_view<const float, 4> output_weights = !output_layer_exist ? s_empty_output_weights
             : output_layer->weights_view_;
 
         // writeonly
-        array_view<float, 3> top_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
-        array_view<float, 3> top_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+        auto top_data = top_layer[top_slot];
+        array_view<float, 3> top_value = top_data.first;
+        array_view<float, 3> top_expect = top_data.second;
+
         top_value.discard_data();
         top_expect.discard_data();
 
@@ -733,8 +738,8 @@ namespace deep_learning_lib
         });
     }
 
-    void ConvolveLayer::PassDown(const DataLayer& top_layer, bool top_switcher,
-        DataLayer& bottom_layer, bool bottom_switcher, OutputLayer* output_layer, bool output_switcher) const
+    void ConvolveLayer::PassDown(const DataLayer& top_layer, DataSlot top_slot,
+        DataLayer& bottom_layer, DataSlot bottom_slot, OutputLayer* output_layer, DataSlot output_slot) const
     {
         assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
@@ -751,13 +756,14 @@ namespace deep_learning_lib
 
         array_view<const float, 5> neuron_weights = neurons_view_;
         array_view<const float> vbias = vbias_view_;
-        array_view<const float, 3> top_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
+        array_view<const float, 3> top_value = top_layer[top_slot].first;
 
         array_view<const int, 3> bottom_active = bottom_layer.active_view_;
 
         // writeonly
-        array_view<float, 3> bottom_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
-        array_view<float, 3> bottom_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+        auto bottom_data = bottom_layer[bottom_slot];
+        array_view<float, 3> bottom_value = bottom_data.first;
+        array_view<float, 3> bottom_expect = bottom_data.second;
         bottom_value.discard_data();
         bottom_expect.discard_data();
 
@@ -819,8 +825,7 @@ namespace deep_learning_lib
             array_view<const float> output_bias = output_layer->bias_view_;
             array_view<const float, 4> output_weights = output_layer->weights_view_;
 
-            array_view<float> output_value = output_switcher ?
-                output_layer->outputs_view_ : output_layer->next_outputs_view_;
+            array_view<float> output_value = (*output_layer)[output_slot];
             output_value.discard_data();
 
             // non-tiled version
@@ -849,16 +854,18 @@ namespace deep_learning_lib
 
     }
 
-    void ConvolveLayer::SuppressMemory(DataLayer& top_layer, bool top_switcher,
-        const DataLayer& bottom_layer, bool bottom_switcher) const
+    void ConvolveLayer::SuppressMemory(DataLayer& top_layer, DataSlot top_slot,
+        const DataLayer& bottom_layer, DataSlot bottom_slot) const
     {
         // readonly
-        array_view<const float, 3> bottom_value = bottom_switcher ? bottom_layer.value_view_ : bottom_layer.next_value_view_;
-        array_view<const float, 3> bottom_expect = bottom_switcher ? bottom_layer.expect_view_ : bottom_layer.next_expect_view_;
+        auto bottom_data = bottom_layer[bottom_slot];
+        array_view<const float, 3> bottom_value = bottom_data.first;
+        array_view<const float, 3> bottom_expect = bottom_data.second;
 
         // read write
-        array_view<float, 3> top_value = top_switcher ? top_layer.value_view_ : top_layer.next_value_view_;
-        array_view<float, 3> top_expect = top_switcher ? top_layer.expect_view_ : top_layer.next_expect_view_;
+        auto top_data = top_layer[top_slot];
+        array_view<float, 3> top_value = top_data.first;
+        array_view<float, 3> top_expect = top_data.second;
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,

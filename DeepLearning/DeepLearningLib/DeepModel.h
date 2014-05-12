@@ -12,6 +12,11 @@
 
 namespace deep_learning_lib
 {
+    enum DataSlot
+    {
+        kCurrent, kNext, kTemp
+    };
+
     // 4-dimensional data layer, cache the intermediate result in neural network
     // 3 dimension + time:
     //     _____________________
@@ -40,15 +45,18 @@ namespace deep_learning_lib
 
         // if we don't forget/forgive, we cannot learn.
         const float kMemoryDecayRate = 0.99f;
-        
+
     public:
         concurrency::array_view<float, 3>   value_view_;
         concurrency::array_view<float, 3>   expect_view_;
         concurrency::array_view<float, 3>   next_value_view_;
         concurrency::array_view<float, 3>   next_expect_view_;
+        concurrency::array_view<float, 3>   temp_value_view_;
+        concurrency::array_view<float, 3>   temp_expect_view_;
+
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
-        
+
         // short term memory view
         concurrency::array_view<float, 4>   memory_view_;
 
@@ -76,6 +84,20 @@ namespace deep_learning_lib
         inline int width() const
         {
             return value_view_.extent[2];
+        }
+        inline std::pair<concurrency::array_view<float, 3>, concurrency::array_view<float, 3>> operator[](const DataSlot data_slot) const
+        {
+            switch (data_slot)
+            {
+            case kCurrent:
+                return std::make_pair(value_view_, expect_view_);
+            case kNext:
+                return std::make_pair(next_value_view_, next_expect_view_);
+            case kTemp:
+                return std::make_pair(temp_value_view_, temp_expect_view_);
+            default:
+                throw("DataLayer does not accept data slot type : " + std::to_string(data_slot));
+            }
         }
 
         void Activate(float probability = 1.0f);
@@ -106,10 +128,10 @@ namespace deep_learning_lib
     public:
         concurrency::array_view<float>  outputs_view_;
         concurrency::array_view<float>  next_outputs_view_;
-        
+
         concurrency::array_view<float>  bias_view_;
         concurrency::array_view<float, 4>   weights_view_;
-        
+
     public:
         OutputLayer(int output_num, int input_depth, int input_height, int input_width);
         // Disable copy constructor
@@ -132,7 +154,19 @@ namespace deep_learning_lib
         {
             return weights_view_.extent[3];
         }
-        
+        inline concurrency::array_view<float> operator[](const DataSlot data_slot) const
+        {
+            switch (data_slot)
+            {
+            case kCurrent:
+                return outputs_view_;
+            case kNext:
+                return next_outputs_view_;
+            default:
+                throw("OutputLayer does not accept data slot type : " + std::to_string(data_slot));
+            }
+        }
+
         void SetLabel(const int label);
 
         void RandomizeParams(unsigned int seed);
@@ -180,12 +214,12 @@ namespace deep_learning_lib
         concurrency::array_view<float>      hbias_view_;
 
     public:
-        ConvolveLayer(int longterm_memory_num, int neuron_num, 
+        ConvolveLayer(int longterm_memory_num, int neuron_num,
             int shortterm_memory_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
-        
+
         inline int longterm_memory_num() const
         {
             return longterm_memory_num_;
@@ -211,17 +245,17 @@ namespace deep_learning_lib
             return neurons_view_.extent[4];
         }
 
-        void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-            DataLayer& top_layer, bool top_switcher,
-            const OutputLayer* output_layer = nullptr, bool output_switcher = false) const;
+        void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
+            DataLayer& top_layer, DataSlot top_slot,
+            const OutputLayer* output_layer = nullptr, DataSlot output_slot = kCurrent) const;
 
-        void PassDown(const DataLayer& top_layer, bool top_switcher,
-            DataLayer& bottom_layer, bool bottom_switcher,
-            OutputLayer* output_layer = nullptr, bool output_switcher = false) const;
+        void PassDown(const DataLayer& top_layer, DataSlot top_slot,
+            DataLayer& bottom_layer, DataSlot bottom_slot,
+            OutputLayer* output_layer = nullptr, DataSlot output_slot = kCurrent) const;
 
         // Not all long-term memory activations are helpful, let's filter these harmful memories.
-        void SuppressMemory(DataLayer& top_layer, bool top_switcher, 
-            const DataLayer& bottom_layer, bool bottom_switcher) const;
+        void SuppressMemory(DataLayer& top_layer, DataSlot top_slot,
+            const DataLayer& bottom_layer, DataSlot bottom_slot) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
@@ -269,7 +303,7 @@ namespace deep_learning_lib
 
         float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob,
             const int label = -1, bool discriminative_training = false);
-        
+
         int PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob);
 
         float Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,
