@@ -192,7 +192,6 @@ namespace deep_learning_lib
         // traditional neuron weights and longterm memory weights are both contained in this vector
         // since they share the same structure
         std::vector<float> weights_;
-        concurrency::array_view<float, 5> weights_view_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
@@ -202,12 +201,14 @@ namespace deep_learning_lib
         int shortterm_memory_num_;
 
     public:
+        // long term memory + neuron
+        concurrency::array_view<float, 5>   neurons_with_longterm_memory_view_;
         // long term memory view
-        concurrency::array_view<float, 5>   memory_view_;
+        concurrency::array_view<float, 5>   longterm_memory_view_;
         // traditional neurons weight view, containing weights for short-term memories in bottom layer
         concurrency::array_view<float, 5>   neurons_view_;
-        // neurons weight view only for value layer in bottom layer
-        concurrency::array_view<float, 5>   value_neurons_view_;
+        // neurons weight view only for value layer in bottom layer, no short memory part, for training
+        concurrency::array_view<float, 5>   neurons_no_shortterm_memory_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;

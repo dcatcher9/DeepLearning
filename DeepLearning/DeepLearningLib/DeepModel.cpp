@@ -594,13 +594,13 @@ namespace deep_learning_lib
         int shortterm_memory_num, int neuron_depth, int neuron_height, int neuron_width)
         : longterm_memory_num_(longterm_memory_num), shortterm_memory_num_(shortterm_memory_num),
         weights_((neuron_num + longterm_memory_num) * (1 + shortterm_memory_num) * neuron_depth * neuron_height * neuron_width),
-        weights_view_(make_extent(neuron_num + longterm_memory_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width), weights_),
+        neurons_with_longterm_memory_view_(make_extent(neuron_num + longterm_memory_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width), weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
-        memory_view_(longterm_memory_num == 0 ? weights_view_ : 
-            weights_view_.section(make_index(neuron_num, 0, 0, 0, 0), 
-                make_extent(longterm_memory_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width))),
-        neurons_view_(weights_view_.section(make_extent(neuron_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width))),
-        value_neurons_view_(weights_view_.section(make_extent(neuron_num, 1, neuron_depth, neuron_height, neuron_width))),
+        longterm_memory_view_(longterm_memory_num == 0 ? neurons_with_longterm_memory_view_ :
+            neurons_with_longterm_memory_view_.section(make_index(neuron_num, 0, 0, 0, 0),
+            make_extent(longterm_memory_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width))),
+        neurons_view_(neurons_with_longterm_memory_view_.section(make_extent(neuron_num, 1 + shortterm_memory_num, neuron_depth, neuron_height, neuron_width))),
+        neurons_no_shortterm_memory_view_(neurons_with_longterm_memory_view_.section(make_extent(neuron_num, 1, neuron_depth, neuron_height, neuron_width))),
         // no vbias for short-term memory because they are not generative
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
@@ -613,10 +613,10 @@ namespace deep_learning_lib
         : longterm_memory_num_(other.longterm_memory_num_),
         shortterm_memory_num_(other.shortterm_memory_num_),
         weights_(std::move(other.weights_)),
-        weights_view_(other.weights_view_),
-        memory_view_(other.memory_view_),
+        neurons_with_longterm_memory_view_(other.neurons_with_longterm_memory_view_),
+        longterm_memory_view_(other.longterm_memory_view_),
         neurons_view_(other.neurons_view_),
-        value_neurons_view_(other.value_neurons_view_),
+        neurons_no_shortterm_memory_view_(other.neurons_no_shortterm_memory_view_),
         vbias_(std::move(other.vbias_)),
         vbias_view_(other.vbias_view_),
         hbias_(std::move(other.hbias_)),
