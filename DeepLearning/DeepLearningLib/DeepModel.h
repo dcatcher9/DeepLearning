@@ -189,9 +189,9 @@ namespace deep_learning_lib
     class ConvolveLayer
     {
     private:
-        // traditional neuron weights and longterm memory weights are both contained in this vector
-        // since they share the same structure
-        std::vector<float> weights_;
+        std::vector<float> neuron_weights_;
+        std::vector<float> shortterm_memory_weights_;
+        std::vector<float> longterm_memory_weights_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
@@ -201,14 +201,13 @@ namespace deep_learning_lib
         int shortterm_memory_num_;
 
     public:
-        // long term memory + neuron
-        concurrency::array_view<float, 5>   neurons_with_longterm_memory_view_;
-        // long term memory view
-        concurrency::array_view<float, 5>   longterm_memory_view_;
-        // traditional neurons weight view, containing weights for short-term memories in bottom layer
-        concurrency::array_view<float, 5>   neurons_view_;
         // neurons weight view only for value layer in bottom layer, no short memory part, for training
-        concurrency::array_view<float, 5>   neurons_no_shortterm_memory_view_;
+        concurrency::array_view<float, 4>   neurons_view_;
+        // neurons weight view, containing weights for short-term memories in bottom layer
+        // structure = [neuron_idx, shortterm_memory_idx, depth_idx, height_idx, width_idx]
+        concurrency::array_view<float, 5>   shortterm_memory_view_;
+        // long term memory view. For simplicity, long term memory does not have short term memory part
+        concurrency::array_view<float, 4>   longterm_memory_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
@@ -235,15 +234,15 @@ namespace deep_learning_lib
         }
         inline int neuron_depth() const
         {
-            return neurons_view_.extent[2];
+            return neurons_view_.extent[1];
         }
         inline int neuron_height() const
         {
-            return neurons_view_.extent[3];
+            return neurons_view_.extent[2];
         }
         inline int neuron_width() const
         {
-            return neurons_view_.extent[4];
+            return neurons_view_.extent[3];
         }
 
         void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
