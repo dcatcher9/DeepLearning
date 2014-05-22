@@ -18,6 +18,8 @@ namespace deep_learning_lib
         : memory_num_(memory_num),
         // put memory at the end
         data_array_(make_extent(6 + memory_num, depth, height, width)),
+        sparse_prior_array_(height, width),
+        sparse_prior_view_(height, width, sparse_prior_array_),
         value_view_(data_array_[0]),
         expect_view_(data_array_[1]),
         next_value_view_(data_array_[2]),
@@ -38,6 +40,8 @@ namespace deep_learning_lib
     DataLayer::DataLayer(DataLayer&& other)
         : memory_num_(other.memory_num_),
         data_array_(std::move(other.data_array_)),
+        sparse_prior_array_(std::move(other.sparse_prior_array_)),
+        sparse_prior_view_(other.sparse_prior_view_),
         value_view_(other.value_view_),
         expect_view_(other.expect_view_),
         next_value_view_(other.next_value_view_),
@@ -775,6 +779,7 @@ namespace deep_learning_lib
         assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
+        assert(bottom_layer.memory_num() == this->shortterm_memory_num());
 
         // PassDown will not touch bottom short-term memory for simplicity
 
@@ -782,10 +787,12 @@ namespace deep_learning_lib
         const int neuron_num = this->neuron_num();
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
+        const int longterm_memory_num = this->longterm_memory_num();
         const int bottom_height = bottom_layer.height();
         const int bottom_width = bottom_layer.width();
 
-        array_view<const float, 5> neuron_weights = neurons_view_;
+        array_view<const float, 4> neuron_weights = neurons_view_;
+        array_view<const float, 4> longterm_memory_weights = longterm_memory_view_;
         array_view<const float> vbias = vbias_view_;
         array_view<const float, 3> top_value = top_layer[top_slot].first;
 
@@ -823,9 +830,29 @@ namespace deep_learning_lib
 
                 float result = vbias[cur_depth_idx];
 
+                // top_value = longterm_memory + neuron_value
+
+                // Longterm memory should be treated as sum-of-product model, but it will break the tractability and stability of RBM.
+                // Here we unify it as product-of-expert model with approximation by sparse prior.
+                for (int memory_idx = 0; memory_idx < longterm_memory_num; memory_idx++)
+                {
+                    array_view<const float, 3> current_memory = longterm_memory_weights[memory_idx];
+
+                    for (int height_idx = height_idx_min; height_idx <= height_idx_max; height_idx++)
+                    {
+                        int top_height_idx = cur_height_idx - height_idx;
+                        for (int width_idx = width_idx_min; width_idx <= width_idx_max; width_idx++)
+                        {
+                            int top_width_idx = cur_width_idx - width_idx;
+                            result += current_memory(cur_depth_idx, height_idx, width_idx) *
+                                top_value(memory_idx, top_height_idx, top_width_idx);
+                        }
+                    }
+                }
+
                 for (int neuron_idx = 0; neuron_idx < neuron_num; neuron_idx++)
                 {
-                    array_view<const float, 3> current_neuron = neuron_weights[neuron_idx][0];
+                    array_view<const float, 3> current_neuron = neuron_weights[neuron_idx];
 
                     for (int height_idx = height_idx_min; height_idx <= height_idx_max; height_idx++)
                     {
@@ -834,13 +861,14 @@ namespace deep_learning_lib
                         {
                             int top_width_idx = cur_width_idx - width_idx;
                             result += current_neuron(cur_depth_idx, height_idx, width_idx) *
-                                top_value(neuron_idx, top_height_idx, top_width_idx);
+                                top_value(longterm_memory_num + neuron_idx, top_height_idx, top_width_idx);
                         }
                     }
                 }
 
                 // Logistic activation function. Maybe more types of activation function later.
                 float prob = 1.0f / (1.0f + fast_math::expf(-result));
+
                 bottom_expect[idx] = prob;
                 bottom_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
             }
@@ -886,17 +914,65 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::SuppressMemory(DataLayer& top_layer, DataSlot top_slot,
-        const DataLayer& bottom_layer, DataSlot bottom_slot) const
+        const DataLayer& bottom_layer, DataSlot bottom_data_slot, DataSlot bottom_model_slot) const
     {
+        assert(this->longterm_memory_num() != 0);
+
         // readonly
-        auto bottom_data = bottom_layer[bottom_slot];
-        array_view<const float, 3> bottom_value = bottom_data.first;
-        array_view<const float, 3> bottom_expect = bottom_data.second;
+        const int neuron_depth = this->neuron_depth();
+        const int neuron_height = this->neuron_height();
+        const int neuron_width = this->neuron_width();
+        auto bottom_data = bottom_layer[bottom_data_slot];
+        array_view<const float, 3> bottom_data_value = bottom_data.first;
+        array_view<const float, 3> bottom_data_expect = bottom_data.second;
+        auto bottom_model = bottom_layer[bottom_model_slot];
+        array_view<const float, 3> bottom_model_value = bottom_model.first;
+        array_view<const float, 3> bottom_model_expect = bottom_model.second;
+
+        // calculate data and model similarity, based on logistic neural activation.
+        // there are many ways to measure similarity, but logistic is the simplest.
+        // does not consider shortterm memory
+        array_view<float, 2> top_sparse_prior_view = top_layer.sparse_prior_view_;// write only
+        parallel_for_each(top_sparse_prior_view.extent,
+            [=](index<2> idx) restrict(amp)
+        {
+            int cur_height_idx = idx[0];
+            int cur_width_idx = idx[1];
+
+            float result = 0.0f;
+            for (int depth_idx = 0; depth_idx < neuron_depth; depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < neuron_height; height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < neuron_width; width_idx++)
+                    {
+                        result = bottom_data_value(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx)
+                            * bottom_model_expect(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx);
+                    }
+                }
+            }
+
+            top_sparse_prior_view[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+        });
 
         // read write
         auto top_data = top_layer[top_slot];
-        array_view<float, 3> top_value = top_data.first;
-        array_view<float, 3> top_expect = top_data.second;
+        array_view<float, 3> top_value = top_data.first.section(extent<3>(this->longterm_memory_num(), top_layer.height(), top_layer.width()));
+        array_view<float, 3> top_expect = top_data.second.section(extent<3>(this->longterm_memory_num(), top_layer.height(), top_layer.width()));
+
+        parallel_for_each(top_expect.extent,
+            [=](index<3> idx) restrict(amp)
+        {
+            int cur_depth_idx = idx[0];
+            int cur_height_idx = idx[1];
+            int cur_width_idx = idx[2];
+
+            if (top_expect[idx] <= top_sparse_prior_view(cur_height_idx, cur_width_idx))
+            {
+                top_expect[idx] = 0.0f;
+                top_value[idx] = 0.0f;
+            }
+        });
     }
 
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
@@ -908,6 +984,7 @@ namespace deep_learning_lib
         const int bottom_height = bottom_layer.height();
         const int bottom_width = bottom_layer.width();
         const int bottom_memory_num = bottom_layer.memory_num();
+        const int longterm_memory_num = this->longterm_memory_num();
 
         array_view<const float, 3> top_expect = top_layer.expect_view_;
         array_view<const float, 3> top_next_expect = top_layer.next_expect_view_;
@@ -916,29 +993,29 @@ namespace deep_learning_lib
         array_view<const float, 4> bottom_memories = bottom_layer.memory_view_;
 
         // parameters to train
-        array_view<float, 5> value_neuron_weights = this->value_neurons_view_;
-        array_view<float, 5> longterm_memory_weights = this->memory_view_;
+        array_view<float, 4> neuron_weights = this->neurons_view_;
+        array_view<float, 5> shortterm_memory_weights = this->shortterm_memory_view_;
+        array_view<float, 4> longterm_memory_weights = this->longterm_memory_view_;
 
         array_view<float> vbias = vbias_view_;
         array_view<float> hbias = hbias_view_;
 
         // non-tiled version
-        parallel_for_each(value_neuron_weights.extent, [=](index<5> idx) restrict(amp)
+        parallel_for_each(neuron_weights.extent, [=](index<4> idx) restrict(amp)
         {
             float delta = 0.0f;
 
             int neuron_idx = idx[0];
-            //int short_memory_idx = idx[1]; should always = 0
-            int neuron_depth_idx = idx[2];
-            int neuron_height_idx = idx[3];
-            int neuron_width_idx = idx[4];
+            int neuron_depth_idx = idx[1];
+            int neuron_height_idx = idx[2];
+            int neuron_width_idx = idx[3];
 
             for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
             {
                 for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
                 {
-                    float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
-                    float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float cur_top_expect = top_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
+                    float cur_top_next_expect = top_next_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
 
                     float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
                     float cur_bottom_next_value = discriminative_training ? cur_bottom_value :
@@ -948,30 +1025,40 @@ namespace deep_learning_lib
                 }
             }
 
-            //if (neuron_depth_idx < bottom_memory_size)
-            //{
-            //    // bottom memory, depth index starts from 0.
-            //    // we train memory weights in a discriminative way for simplicity.
-            //    for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-            //    {
-            //        for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-            //        {
-            //            float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
-            //            float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
-
-            //            float cur_bottom_value = bottom_short_memory(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
-
-            //            delta += cur_bottom_value * (cur_top_expect - cur_top_next_expect);
-            //        }
-            //    }
-            //}
-            //else
-            //{
-            //    
-            //}
-
-            value_neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
+            neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
+
+        if (this->shortterm_memory_num() > 0)
+        {
+            // for now, shortterm memory training is always discriminative
+            parallel_for_each(shortterm_memory_weights.extent, [=](index<5> idx) restrict(amp)
+            {
+                float delta = 0.0f;
+
+                int neuron_idx = idx[0];
+                int memory_idx = idx[1];
+                int neuron_depth_idx = idx[2];
+                int neuron_height_idx = idx[3];
+                int neuron_width_idx = idx[4];
+
+                auto cur_bottom_memory = bottom_memories[memory_idx];
+
+                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+                {
+                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                    {
+                        float cur_top_expect = top_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
+                        float cur_top_next_expect = top_next_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
+
+                        float cur_bottom_value = cur_bottom_memory(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+                        
+                        delta += cur_bottom_value * (cur_top_expect - cur_top_next_expect);
+                    }
+                }
+
+                shortterm_memory_weights[idx] += delta / (top_height * top_width) * learning_rate;
+            });
+        }
 
         // update vbias, only for generative training
         if (!discriminative_training)

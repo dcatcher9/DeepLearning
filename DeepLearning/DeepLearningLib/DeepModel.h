@@ -38,6 +38,7 @@ namespace deep_learning_lib
         // internal storage for both value, expect_value, next_value, next_expect_value and short term memory.
         // simple unified storage because they all share the same structure. live on GPU directly.
         concurrency::array<float, 4> data_array_;
+        concurrency::array<float, 2> sparse_prior_array_;
         int memory_num_;
 
         float active_prob_;
@@ -53,6 +54,9 @@ namespace deep_learning_lib
         concurrency::array_view<float, 3>   next_expect_view_;
         concurrency::array_view<float, 3>   temp_value_view_;
         concurrency::array_view<float, 3>   temp_expect_view_;
+        // store how good is the reconstruction of model against true data at each positions
+        // longterm memory below this threshold is suppressed, so it serves as a sparse prior
+        concurrency::array_view<float, 2>   sparse_prior_view_;
 
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
@@ -255,7 +259,7 @@ namespace deep_learning_lib
 
         // Not all long-term memory activations are helpful, let's filter these harmful memories.
         void SuppressMemory(DataLayer& top_layer, DataSlot top_slot,
-            const DataLayer& bottom_layer, DataSlot bottom_slot) const;
+            const DataLayer& bottom_layer, DataSlot bottom_data_slot, DataSlot bottom_model_slot) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
