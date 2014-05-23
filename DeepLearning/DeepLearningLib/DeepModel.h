@@ -196,6 +196,7 @@ namespace deep_learning_lib
         std::vector<float> neuron_weights_;
         std::vector<float> shortterm_memory_weights_;
         std::vector<float> longterm_memory_weights_;
+        std::vector<float> longterm_memory_intensities_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;

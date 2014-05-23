@@ -16,7 +16,7 @@ namespace deep_learning_lib
 
     DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
         : memory_num_(memory_num),
-        // put memory at the end
+        // put shortterm memory at the end
         data_array_(make_extent(6 + memory_num, depth, height, width)),
         sparse_prior_array_(height, width),
         sparse_prior_view_(height, width, sparse_prior_array_),
@@ -35,6 +35,7 @@ namespace deep_learning_lib
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
+        fill(sparse_prior_array_, 0.0f);
     }
 
     DataLayer::DataLayer(DataLayer&& other)
@@ -600,21 +601,22 @@ namespace deep_learning_lib
         neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
         shortterm_memory_weights_(neuron_num * shortterm_memory_num * neuron_depth * neuron_height * neuron_width),
         longterm_memory_weights_(longterm_memory_num * neuron_depth * neuron_height * neuron_width),
+        longterm_memory_intensities_(longterm_memory_num),
         neurons_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when shortterm_memory_num == 0, we use neuron_weights_ to fill the view 
         // because amp does not support empty array_view. What a pity!
         shortterm_memory_view_(
-            make_extent(neuron_num, shortterm_memory_num == 0 ? 1 : shortterm_memory_num, neuron_depth, neuron_height, neuron_width),
-            shortterm_memory_num == 0 ? neuron_weights_ : shortterm_memory_weights_),
+        make_extent(neuron_num, shortterm_memory_num == 0 ? 1 : shortterm_memory_num, neuron_depth, neuron_height, neuron_width),
+        shortterm_memory_num == 0 ? neuron_weights_ : shortterm_memory_weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
         longterm_memory_view_(
-            make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, neuron_depth, neuron_height, neuron_width),
-            longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
+        make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, neuron_depth, neuron_height, neuron_width),
+        longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
         // no vbias for short-term memory because they are not generative
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
-        hbias_(neuron_num),
-        hbias_view_(neuron_num, hbias_)
+        hbias_(longterm_memory_num + neuron_num),
+        hbias_view_(longterm_memory_num + neuron_num, hbias_)
     {
     }
 
@@ -635,8 +637,8 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
-                               DataLayer& top_layer, DataSlot top_slot, 
-                               const OutputLayer* output_layer, DataSlot output_slot) const
+        DataLayer& top_layer, DataSlot top_slot,
+        const OutputLayer* output_layer, DataSlot output_slot) const
     {
         assert(top_layer.depth() == this->neuron_num() + this->longterm_memory_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
@@ -990,6 +992,7 @@ namespace deep_learning_lib
         array_view<const float, 3> top_next_expect = top_layer.next_expect_view_;
         array_view<const float, 3> bottom_value = bottom_layer.value_view_;
         array_view<const float, 3> bottom_next_value = bottom_layer.next_value_view_;
+        array_view<const float, 3> bottom_next_expect = bottom_layer.next_expect_view_;
         array_view<const float, 4> bottom_memories = bottom_layer.memory_view_;
 
         // parameters to train
@@ -1051,7 +1054,7 @@ namespace deep_learning_lib
                         float cur_top_next_expect = top_next_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
 
                         float cur_bottom_value = cur_bottom_memory(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
-                        
+
                         delta += cur_bottom_value * (cur_top_expect - cur_top_next_expect);
                     }
                 }
@@ -1060,7 +1063,7 @@ namespace deep_learning_lib
             });
         }
 
-        // update vbias, only for generative training
+        // update vbias, only for generative training and only for value not shortterm memory
         if (!discriminative_training)
         {
             parallel_for_each(vbias.extent, [=](index<1> idx) restrict(amp)
@@ -1144,13 +1147,24 @@ namespace deep_learning_lib
         std::default_random_engine generator(seed);
         std::normal_distribution<float> distribution(0.0f, 0.05f);
 
-        for (float& w : weights_)
+        for (float& w : neuron_weights_)
         {
             w = distribution(generator);
         }
 
-        weights_view_.discard_data();
-        weights_view_.refresh();
+        for (float& w : shortterm_memory_weights_)
+        {
+            w = distribution(generator);
+        }
+
+        for (float& w : longterm_memory_weights_)
+        {
+            w = distribution(generator);
+        }
+
+        neurons_view_.discard_data();
+        shortterm_memory_view_.discard_data();
+        longterm_memory_view_.discard_data();
     }
 
     bitmap_image ConvolveLayer::GenerateImage() const
