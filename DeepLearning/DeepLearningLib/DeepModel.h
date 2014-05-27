@@ -35,10 +35,10 @@ namespace deep_learning_lib
     private:
         // these vectors are initialized before the corresponding array_views
 
-        // internal storage for both value, expect_value, next_value, next_expect_value and short term memory.
+        // internal storage for both value, expect, affinity and short term memory.
         // simple unified storage because they all share the same structure. live on GPU directly.
         concurrency::array<float, 4> data_array_;
-        concurrency::array<float, 2> sparse_prior_array_;
+        concurrency::array<float, 2> affinity_prior_array_;
         int memory_num_;
 
         float active_prob_;
@@ -50,13 +50,18 @@ namespace deep_learning_lib
     public:
         concurrency::array_view<float, 3>   value_view_;
         concurrency::array_view<float, 3>   expect_view_;
+        // store how good current neuron alone can reconstruct the true data
+        // two possible metrics : negative likelihood and mean squared error
+        concurrency::array_view<float, 3>   affinity_view_;
         concurrency::array_view<float, 3>   next_value_view_;
         concurrency::array_view<float, 3>   next_expect_view_;
+        concurrency::array_view<float, 3>   next_affinity_view_;
         concurrency::array_view<float, 3>   temp_value_view_;
         concurrency::array_view<float, 3>   temp_expect_view_;
+        concurrency::array_view<float, 3>   temp_affinity_view_;
         // store how good is the reconstruction of model against true data at each positions
         // longterm memory below this threshold is suppressed, so it serves as a sparse prior
-        concurrency::array_view<float, 2>   sparse_prior_view_;
+        concurrency::array_view<float, 2>   affinity_prior_view_;
 
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
@@ -89,16 +94,17 @@ namespace deep_learning_lib
         {
             return value_view_.extent[2];
         }
-        inline std::pair<concurrency::array_view<float, 3>, concurrency::array_view<float, 3>> operator[](const DataSlot data_slot) const
+        inline std::tuple<concurrency::array_view<float, 3>, concurrency::array_view<float, 3>, concurrency::array_view<float, 3>> 
+            operator[](const DataSlot data_slot) const
         {
             switch (data_slot)
             {
             case kCurrent:
-                return std::make_pair(value_view_, expect_view_);
+                return std::make_tuple(value_view_, expect_view_, affinity_view_);
             case kNext:
-                return std::make_pair(next_value_view_, next_expect_view_);
+                return std::make_tuple(next_value_view_, next_expect_view_, next_affinity_view_);
             case kTemp:
-                return std::make_pair(temp_value_view_, temp_expect_view_);
+                return std::make_tuple(temp_value_view_, temp_expect_view_, temp_affinity_view_);
             default:
                 throw("DataLayer does not accept data slot type : " + std::to_string(data_slot));
             }

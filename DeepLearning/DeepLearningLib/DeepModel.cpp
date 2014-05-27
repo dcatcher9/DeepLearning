@@ -17,15 +17,18 @@ namespace deep_learning_lib
     DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
         : memory_num_(memory_num),
         // put shortterm memory at the end
-        data_array_(make_extent(6 + memory_num, depth, height, width)),
-        sparse_prior_array_(height, width),
-        sparse_prior_view_(height, width, sparse_prior_array_),
+        data_array_(make_extent(9 + memory_num, depth, height, width)),
+        affinity_prior_array_(height, width),
+        affinity_prior_view_(height, width, affinity_prior_array_),
         value_view_(data_array_[0]),
         expect_view_(data_array_[1]),
-        next_value_view_(data_array_[2]),
-        next_expect_view_(data_array_[3]),
-        temp_value_view_(data_array_[4]),
-        temp_expect_view_(data_array_[5]),
+        affinity_view_(data_array_[2]),
+        next_value_view_(data_array_[3]),
+        next_expect_view_(data_array_[4]),
+        next_affinity_view_(data_array_[5]),
+        temp_value_view_(data_array_[6]),
+        temp_expect_view_(data_array_[7]),
+        temp_affinity_view_(data_array_[8]),
         active_prob_(1.0f),
         active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
@@ -35,20 +38,23 @@ namespace deep_learning_lib
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
-        fill(sparse_prior_array_, 0.0f);
+        fill(affinity_prior_array_, 0.0f);
     }
 
     DataLayer::DataLayer(DataLayer&& other)
         : memory_num_(other.memory_num_),
         data_array_(std::move(other.data_array_)),
-        sparse_prior_array_(std::move(other.sparse_prior_array_)),
-        sparse_prior_view_(other.sparse_prior_view_),
+        affinity_prior_array_(std::move(other.affinity_prior_array_)),
+        affinity_prior_view_(other.affinity_prior_view_),
         value_view_(other.value_view_),
         expect_view_(other.expect_view_),
+        affinity_view_(other.affinity_view_),
         next_value_view_(other.next_value_view_),
         next_expect_view_(other.next_expect_view_),
+        next_affinity_view_(other.next_affinity_view_),
         temp_value_view_(other.temp_value_view_),
         temp_expect_view_(other.temp_expect_view_),
+        temp_affinity_view_(other.temp_affinity_view_),
         active_prob_(other.active_prob_),
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
@@ -664,7 +670,7 @@ namespace deep_learning_lib
         array_view<const float, 4> neuron_weights = neurons_view_;
         array_view<const float, 5> shortterm_memory_weights = shortterm_memory_view_;
         array_view<const float> hbias = hbias_view_;
-        array_view<const float, 3> bottom_value = bottom_layer[bottom_slot].first;
+        array_view<const float, 3> bottom_value = std::get<0>(bottom_layer[bottom_slot]);
         array_view<const float, 4> bottom_memories = bottom_layer.memory_view_;
 
         array_view<const int, 3> top_active = top_layer.active_view_;
@@ -678,11 +684,13 @@ namespace deep_learning_lib
 
         // writeonly
         auto top_data = top_layer[top_slot];
-        array_view<float, 3> top_value = top_data.first;
-        array_view<float, 3> top_expect = top_data.second;
+        array_view<float, 3> top_value = std::get<0>(top_data);
+        array_view<float, 3> top_expect = std::get<1>(top_data);
+        array_view<float, 3> top_affinity = std::get<2>(top_data);
 
         top_value.discard_data();
         top_expect.discard_data();
+        top_affinity.discard_data();
 
         auto& rand_collection = top_layer.rand_collection_;
 
@@ -695,6 +703,7 @@ namespace deep_learning_lib
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
+                top_affinity[idx] = 0.0f;
             }
             else
             {
@@ -703,6 +712,7 @@ namespace deep_learning_lib
                 int cur_width_idx = idx[2];
 
                 float result = hbias[cur_depth_idx];
+                float affinity = 0.0f;
 
                 if (output_layer_exist)
                 {
@@ -723,8 +733,11 @@ namespace deep_learning_lib
                         {
                             for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                             {
-                                result += bottom_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
-                                    * current_longterm_memory(depth_idx, height_idx, width_idx);
+                                float value = bottom_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx);
+                                float memory = current_longterm_memory(depth_idx, height_idx, width_idx);
+                                result += value * memory;
+                                float diff = 1.0f / (1.0f + fast_math::expf(-memory)) - value;
+                                affinity += 1.0f - diff * diff;
                             }
                         }
                     }
@@ -742,13 +755,16 @@ namespace deep_learning_lib
                         {
                             for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                             {
-                                result += bottom_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx)
-                                    * current_neuron(depth_idx, height_idx, width_idx);
+                                float value = bottom_value(depth_idx, cur_height_idx + height_idx, cur_width_idx + width_idx);
+                                float neuron = current_neuron(depth_idx, height_idx, width_idx);
+                                result += value * neuron;
+                                float diff = 1.0f / (1.0f + fast_math::expf(-neuron)) - value;
+                                affinity += 1.0f - diff * diff;
                             }
                         }
                     }
 
-                    // convolve short-term memory in bottom layer if exists.
+                    // convolve short-term memory in bottom layer if exists. affinity does not consider shortterm memory
                     for (int memory_idx = 0; memory_idx < shortterm_memory_num; memory_idx++)
                     {
                         auto current_memory_neuron = shortterm_memory_view_[cur_depth_idx][memory_idx];
@@ -771,6 +787,7 @@ namespace deep_learning_lib
                 float prob = 1.0f / (1.0f + fast_math::expf(-result));
                 top_expect[idx] = prob;
                 top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+                top_affinity[idx] = affinity;
             }
         });
     }
@@ -796,14 +813,14 @@ namespace deep_learning_lib
         array_view<const float, 4> neuron_weights = neurons_view_;
         array_view<const float, 4> longterm_memory_weights = longterm_memory_view_;
         array_view<const float> vbias = vbias_view_;
-        array_view<const float, 3> top_value = top_layer[top_slot].first;
+        array_view<const float, 3> top_value = std::get<0>(top_layer[top_slot]);
 
         array_view<const int, 3> bottom_active = bottom_layer.active_view_;
 
         // writeonly
         auto bottom_data = bottom_layer[bottom_slot];
-        array_view<float, 3> bottom_value = bottom_data.first;
-        array_view<float, 3> bottom_expect = bottom_data.second;
+        array_view<float, 3> bottom_value = std::get<0>(bottom_data);
+        array_view<float, 3> bottom_expect = std::get<1>(bottom_data);
         bottom_value.discard_data();
         bottom_expect.discard_data();
 
@@ -925,51 +942,54 @@ namespace deep_learning_lib
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
         auto bottom_data = bottom_layer[bottom_data_slot];
-        array_view<const float, 3> bottom_data_value = bottom_data.first;
-        array_view<const float, 3> bottom_data_expect = bottom_data.second;
+        array_view<const float, 3> bottom_data_value = std::get<0>(bottom_data);
+        array_view<const float, 3> bottom_data_expect = std::get<1>(bottom_data);
         auto bottom_model = bottom_layer[bottom_model_slot];
-        array_view<const float, 3> bottom_model_value = bottom_model.first;
-        array_view<const float, 3> bottom_model_expect = bottom_model.second;
+        array_view<const float, 3> bottom_model_value = std::get<0>(bottom_model);
+        array_view<const float, 3> bottom_model_expect = std::get<1>(bottom_model);
 
         // calculate data and model similarity, based on logistic neural activation.
         // there are many ways to measure similarity, but logistic is the simplest.
         // does not consider shortterm memory
-        array_view<float, 2> top_sparse_prior_view = top_layer.sparse_prior_view_;// write only
-        parallel_for_each(top_sparse_prior_view.extent,
+        array_view<float, 2> top_affinity_prior_view = top_layer.affinity_prior_view_;// write only
+        parallel_for_each(top_affinity_prior_view.extent,
             [=](index<2> idx) restrict(amp)
         {
             int cur_height_idx = idx[0];
             int cur_width_idx = idx[1];
 
-            float result = 0.0f;
+            float affinity = 0.0f;
             for (int depth_idx = 0; depth_idx < neuron_depth; depth_idx++)
             {
                 for (int height_idx = 0; height_idx < neuron_height; height_idx++)
                 {
                     for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                     {
-                        result = bottom_data_value(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx)
-                            * bottom_model_expect(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx);
+                        float data = bottom_data_value(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx);
+                        float model = bottom_model_expect(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx);
+                        float diff = 1.0f / (1.0f + fast_math::expf(-model)) - data;
+                        affinity += 1.0f - diff * diff;
                     }
                 }
             }
 
-            top_sparse_prior_view[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+            top_affinity_prior_view[idx] = affinity;
         });
 
         // read write
         auto top_data = top_layer[top_slot];
-        array_view<float, 3> top_value = top_data.first.section(extent<3>(this->longterm_memory_num(), top_layer.height(), top_layer.width()));
-        array_view<float, 3> top_expect = top_data.second.section(extent<3>(this->longterm_memory_num(), top_layer.height(), top_layer.width()));
+        array_view<float, 3> top_value = std::get<0>(top_data).section(extent<3>(this->longterm_memory_num(), top_layer.height(), top_layer.width()));
+        array_view<float, 3> top_expect = std::get<1>(top_data).section(top_value.extent);
+        array_view<float, 3> top_affinity = std::get<2>(top_data).section(top_value.extent);
 
-        parallel_for_each(top_expect.extent,
+        parallel_for_each(top_affinity.extent,
             [=](index<3> idx) restrict(amp)
         {
             int cur_depth_idx = idx[0];
             int cur_height_idx = idx[1];
             int cur_width_idx = idx[2];
 
-            if (top_expect[idx] <= top_sparse_prior_view(cur_height_idx, cur_width_idx))
+            if (top_affinity[idx] <= top_affinity_prior_view(cur_height_idx, cur_width_idx))
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
