@@ -608,6 +608,9 @@ namespace deep_learning_lib
         shortterm_memory_weights_(neuron_num * shortterm_memory_num * neuron_depth * neuron_height * neuron_width),
         longterm_memory_weights_(longterm_memory_num * neuron_depth * neuron_height * neuron_width),
         longterm_memory_intensities_(longterm_memory_num),
+        // these two views below are resized to bottom layer on the fly
+        longterm_memory_affinity_view_(1, 1, 1),
+        longterm_memory_expect_view_(1, 1, 1),
         neurons_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when shortterm_memory_num == 0, we use neuron_weights_ to fill the view 
         // because amp does not support empty array_view. What a pity!
@@ -632,6 +635,9 @@ namespace deep_learning_lib
         neuron_weights_(std::move(other.neuron_weights_)),
         shortterm_memory_weights_(std::move(other.shortterm_memory_weights_)),
         longterm_memory_weights_(std::move(other.longterm_memory_weights_)),
+        longterm_memory_intensities_(std::move(other.longterm_memory_intensities_)),
+        longterm_memory_affinity_view_(other.longterm_memory_affinity_view_),
+        longterm_memory_expect_view_(other.longterm_memory_expect_view_),
         neurons_view_(other.neurons_view_),
         shortterm_memory_view_(other.shortterm_memory_view_),
         longterm_memory_view_(other.longterm_memory_view_),
@@ -649,7 +655,7 @@ namespace deep_learning_lib
         assert(top_layer.depth() == this->neuron_num() + this->longterm_memory_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
-        assert(bottom_layer.memory_num() == this->shortterm_memory_num());
+        assert(bottom_layer.shortterm_memory_num() == this->shortterm_memory_num());
 
         bool output_layer_exist = output_layer != nullptr;
 
@@ -798,7 +804,7 @@ namespace deep_learning_lib
         assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
-        assert(bottom_layer.memory_num() == this->shortterm_memory_num());
+        assert(bottom_layer.shortterm_memory_num() == this->shortterm_memory_num());
 
         // PassDown will not touch bottom short-term memory for simplicity
 

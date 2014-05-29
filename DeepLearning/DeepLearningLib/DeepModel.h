@@ -45,7 +45,7 @@ namespace deep_learning_lib
         std::vector<int>    active_;
 
         // if we don't forget/forgive, we cannot learn.
-        const float kMemoryDecayRate = 0.99f;
+        // const float kMemoryDecayRate = 0.99f;
 
     public:
         // value = longterm memory + neuron
@@ -195,6 +195,11 @@ namespace deep_learning_lib
         std::vector<float> shortterm_memory_weights_;
         std::vector<float> longterm_memory_weights_;
         std::vector<float> longterm_memory_intensities_;
+
+        // longterm memory activation info when passing up
+        // it's not stored in data layer because long term memory is transparent to data layer
+        concurrency::array_view<float, 3> longterm_memory_affinity_view_;
+        concurrency::array_view<float, 3> longterm_memory_expect_view_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
