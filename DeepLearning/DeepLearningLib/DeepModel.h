@@ -38,9 +38,9 @@ namespace deep_learning_lib
         // internal storage for both value, expect, affinity and short term memory.
         // simple unified storage because they all share the same structure. live on GPU directly.
         concurrency::array<float, 4> data_array_;
-        concurrency::array<float, 2> affinity_prior_array_;
         int shortterm_memory_num_;
 
+        // for dropout
         float active_prob_;
         std::vector<int>    active_;
 
@@ -53,9 +53,6 @@ namespace deep_learning_lib
         concurrency::array_view<float, 3>   expect_view_;
         concurrency::array_view<float, 3>   next_value_view_;
         concurrency::array_view<float, 3>   next_expect_view_;
-        // store how good is the reconstruction of model against true data at each positions
-        // longterm memory below this threshold is suppressed, so it serves as a sparse prior
-        concurrency::array_view<float, 2>   affinity_prior_view_;
 
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
@@ -192,38 +189,36 @@ namespace deep_learning_lib
     {
     private:
         std::vector<float> neuron_weights_;
-        std::vector<float> shortterm_memory_weights_;
         std::vector<float> longterm_memory_weights_;
         std::vector<float> longterm_memory_intensities_;
 
+        // store how good is the reconstruction of model against true data at each positions
+        // longterm memory below this threshold is suppressed, so it serves as a sparse prior
+        concurrency::array_view<float, 2>   longterm_memory_affinity_prior_view_;
+
         // longterm memory activation info when passing up
         // it's not stored in data layer because long term memory is transparent to data layer
-        concurrency::array_view<float, 3> longterm_memory_affinity_view_;
-        concurrency::array_view<float, 3> longterm_memory_expect_view_;
+        concurrency::array_view<float, 3>   longterm_memory_affinity_view_;
+        concurrency::array_view<float, 3>   longterm_memory_expect_view_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
 
         int longterm_memory_num_;
-        int shortterm_memory_num_;
 
     public:
         // neurons weight view only for value layer in bottom layer, no short memory part, for training
-        concurrency::array_view<float, 4>   neurons_view_;
-        // neurons weight view, containing weights for short-term memories in bottom layer
-        // structure = [neuron_idx, shortterm_memory_idx, depth_idx, height_idx, width_idx]
-        concurrency::array_view<float, 5>   shortterm_memory_view_;
+        concurrency::array_view<float, 4>   neuron_weights_view_;
         // long term memory view. For simplicity, long term memory does not have short term memory part
-        concurrency::array_view<float, 4>   longterm_memory_view_;
+        concurrency::array_view<float, 4>   longterm_memory_weights_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float>      vbias_view_;
         concurrency::array_view<float>      hbias_view_;
 
     public:
-        ConvolveLayer(int longterm_memory_num, int neuron_num,
-            int shortterm_memory_num, int neuron_depth, int neuron_height, int neuron_width);
+        ConvolveLayer(int longterm_memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
@@ -232,25 +227,21 @@ namespace deep_learning_lib
         {
             return longterm_memory_num_;
         }
-        inline int shortterm_memory_num() const
-        {
-            return shortterm_memory_num_;
-        }
         inline int neuron_num() const
         {
-            return neurons_view_.extent[0];
+            return neuron_weights_view_.extent[0];
         }
         inline int neuron_depth() const
         {
-            return neurons_view_.extent[1];
+            return neuron_weights_view_.extent[1];
         }
         inline int neuron_height() const
         {
-            return neurons_view_.extent[2];
+            return neuron_weights_view_.extent[2];
         }
         inline int neuron_width() const
         {
-            return neurons_view_.extent[3];
+            return neuron_weights_view_.extent[3];
         }
 
         void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
@@ -272,6 +263,9 @@ namespace deep_learning_lib
         void RandomizeParams(unsigned int seed);
 
         bitmap_image GenerateImage() const;
+
+    private:
+        bool FitLongtermMemory(const DataLayer& top_layer);
     };
 
     // Pooling layer after convolution, no params. 

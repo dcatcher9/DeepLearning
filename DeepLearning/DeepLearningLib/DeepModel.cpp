@@ -14,51 +14,37 @@ namespace deep_learning_lib
 
 #pragma region data layer
 
-    DataLayer::DataLayer(int memory_num, int depth, int height, int width, int seed)
-        : memory_num_(memory_num),
+    DataLayer::DataLayer(int shortterm_memory_num, int depth, int height, int width, int seed)
+        : shortterm_memory_num_(shortterm_memory_num),
         // put shortterm memory at the end
-        data_array_(make_extent(9 + memory_num, depth, height, width)),
-        affinity_prior_array_(height, width),
-        affinity_prior_view_(height, width, affinity_prior_array_),
+        data_array_(make_extent(4 + shortterm_memory_num, depth, height, width)),
         value_view_(data_array_[0]),
         expect_view_(data_array_[1]),
-        affinity_view_(data_array_[2]),
-        next_value_view_(data_array_[3]),
-        next_expect_view_(data_array_[4]),
-        next_affinity_view_(data_array_[5]),
-        temp_value_view_(data_array_[6]),
-        temp_expect_view_(data_array_[7]),
-        temp_affinity_view_(data_array_[8]),
+        next_value_view_(data_array_[2]),
+        next_expect_view_(data_array_[3]),
         active_prob_(1.0f),
         active_(value_view_.extent.size(), 1),
         active_view_(value_view_.extent, active_),
         // there is no empty array_view support in amp now, 
         // so we just map the memory_view_ to the whole data view when the memory_num == 0
-        memory_view_(memory_num == 0 ? data_array_ : data_array_.section(make_index(6, 0, 0, 0), make_extent(memory_num, depth, height, width))),
+        shortterm_memory_view_(shortterm_memory_num == 0 ? data_array_ : 
+            data_array_.section(make_index(4, 0, 0, 0), make_extent(shortterm_memory_num, depth, height, width))),
         rand_collection_(value_view_.extent, seed)
     {
         fill(data_array_, 0.0f);
-        fill(affinity_prior_array_, 0.0f);
     }
 
     DataLayer::DataLayer(DataLayer&& other)
-        : memory_num_(other.memory_num_),
+        : shortterm_memory_num_(other.shortterm_memory_num_),
         data_array_(std::move(other.data_array_)),
-        affinity_prior_array_(std::move(other.affinity_prior_array_)),
-        affinity_prior_view_(other.affinity_prior_view_),
         value_view_(other.value_view_),
         expect_view_(other.expect_view_),
-        affinity_view_(other.affinity_view_),
         next_value_view_(other.next_value_view_),
         next_expect_view_(other.next_expect_view_),
-        next_affinity_view_(other.next_affinity_view_),
-        temp_value_view_(other.temp_value_view_),
-        temp_expect_view_(other.temp_expect_view_),
-        temp_affinity_view_(other.temp_affinity_view_),
         active_prob_(other.active_prob_),
         active_(std::move(other.active_)),
         active_view_(other.active_view_),
-        memory_view_(other.memory_view_),
+        shortterm_memory_view_(other.shortterm_memory_view_),
         rand_collection_(other.rand_collection_)
     {
     }
@@ -376,7 +362,7 @@ namespace deep_learning_lib
 
         // read only
         const int bottom_value_depth = bottom_layer.depth();
-        const int bottom_memory_depth = bottom_layer.memory_num() * bottom_value_depth;
+        const int bottom_memory_depth = bottom_layer.shortterm_memory_num() * bottom_value_depth;
         const int neuron_depth = conv_layer.neuron_depth();
         const int neuron_height = conv_layer.neuron_height();
         const int neuron_width = conv_layer.neuron_width();
@@ -601,26 +587,21 @@ namespace deep_learning_lib
 
 #pragma region convolve layer
 
-    ConvolveLayer::ConvolveLayer(int longterm_memory_num, int neuron_num,
-        int shortterm_memory_num, int neuron_depth, int neuron_height, int neuron_width)
-        : longterm_memory_num_(longterm_memory_num), shortterm_memory_num_(shortterm_memory_num),
+    ConvolveLayer::ConvolveLayer(int longterm_memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
+        : longterm_memory_num_(longterm_memory_num),
         neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
-        shortterm_memory_weights_(neuron_num * shortterm_memory_num * neuron_depth * neuron_height * neuron_width),
         longterm_memory_weights_(longterm_memory_num * neuron_depth * neuron_height * neuron_width),
         longterm_memory_intensities_(longterm_memory_num),
-        // these two views below are resized to bottom layer on the fly
+        // these three views below are resized to fit bottom layer on the fly
+        // they are used like temp variables
+        longterm_memory_affinity_prior_view_(1, 1),
         longterm_memory_affinity_view_(1, 1, 1),
         longterm_memory_expect_view_(1, 1, 1),
-        neurons_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
-        // when shortterm_memory_num == 0, we use neuron_weights_ to fill the view 
-        // because amp does not support empty array_view. What a pity!
-        shortterm_memory_view_(
-        make_extent(neuron_num, shortterm_memory_num == 0 ? 1 : shortterm_memory_num, neuron_depth, neuron_height, neuron_width),
-        shortterm_memory_num == 0 ? neuron_weights_ : shortterm_memory_weights_),
+        neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
-        longterm_memory_view_(
-        make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, neuron_depth, neuron_height, neuron_width),
-        longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
+        longterm_memory_weights_view_(
+            make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, neuron_depth, neuron_height, neuron_width),
+            longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
         // no vbias for short-term memory because they are not generative
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
@@ -631,16 +612,14 @@ namespace deep_learning_lib
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
         : longterm_memory_num_(other.longterm_memory_num_),
-        shortterm_memory_num_(other.shortterm_memory_num_),
         neuron_weights_(std::move(other.neuron_weights_)),
-        shortterm_memory_weights_(std::move(other.shortterm_memory_weights_)),
         longterm_memory_weights_(std::move(other.longterm_memory_weights_)),
         longterm_memory_intensities_(std::move(other.longterm_memory_intensities_)),
+        longterm_memory_affinity_prior_view_(other.longterm_memory_affinity_prior_view_),
         longterm_memory_affinity_view_(other.longterm_memory_affinity_view_),
         longterm_memory_expect_view_(other.longterm_memory_expect_view_),
-        neurons_view_(other.neurons_view_),
-        shortterm_memory_view_(other.shortterm_memory_view_),
-        longterm_memory_view_(other.longterm_memory_view_),
+        neuron_weights_view_(other.neuron_weights_view_),
+        longterm_memory_weights_view_(other.longterm_memory_weights_view_),
         vbias_(std::move(other.vbias_)),
         vbias_view_(other.vbias_view_),
         hbias_(std::move(other.hbias_)),
@@ -1294,6 +1273,20 @@ namespace deep_learning_lib
         }
 
         return image;
+    }
+
+    bool ConvolveLayer::FitLongtermMemory(const DataLayer& top_layer)
+    {
+        if (longterm_memory_affinity_view_.extent == top_layer.value_view_.extent)
+        {
+            return false;
+        }
+
+        longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
+        longterm_memory_affinity_view_ = array_view<float, 3>(top_layer.depth(), top_layer.height(), top_layer.width());
+        longterm_memory_expect_view_ = array_view<float, 3>(longterm_memory_affinity_view_.extent);
+
+        return true;
     }
 #pragma endregion
 
