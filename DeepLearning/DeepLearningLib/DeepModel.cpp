@@ -634,6 +634,7 @@ namespace deep_learning_lib
         assert(top_layer.depth() == this->neuron_num() + this->longterm_memory_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
+        assert(this->neuron_depth() == (bottom_layer.shortterm_memory_num() + 1) * bottom_layer.depth());
         assert(bottom_layer.shortterm_memory_num() == this->shortterm_memory_num());
 
         bool output_layer_exist = output_layer != nullptr;
@@ -649,14 +650,14 @@ namespace deep_learning_lib
         const int neuron_depth = this->neuron_depth();
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
-        const int shortterm_memory_num = this->shortterm_memory_num();
+        const int shortterm_memory_num = bottom_layer.shortterm_memory_num();
         const int longterm_memory_num = this->longterm_memory_num();
 
-        array_view<const float, 4> neuron_weights = neurons_view_;
-        array_view<const float, 5> shortterm_memory_weights = shortterm_memory_view_;
+        array_view<const float, 4> neuron_weights = this->neuron_weights_view_;
+        array_view<const float, 4> longterm_memory_weights = this->longterm_memory_weights_view_;
         array_view<const float> hbias = hbias_view_;
-        array_view<const float, 3> bottom_value = std::get<0>(bottom_layer[bottom_slot]);
-        array_view<const float, 4> bottom_memories = bottom_layer.memory_view_;
+        array_view<const float, 3> bottom_value = bottom_layer[bottom_slot].first;
+        array_view<const float, 4> bottom_shortterm_memory = bottom_layer.shortterm_memory_view_;
 
         array_view<const int, 3> top_active = top_layer.active_view_;
 
@@ -669,13 +670,11 @@ namespace deep_learning_lib
 
         // writeonly
         auto top_data = top_layer[top_slot];
-        array_view<float, 3> top_value = std::get<0>(top_data);
-        array_view<float, 3> top_expect = std::get<1>(top_data);
-        array_view<float, 3> top_affinity = std::get<2>(top_data);
+        array_view<float, 3> top_value = top_data.first;
+        array_view<float, 3> top_expect = top_data.second;
 
         top_value.discard_data();
         top_expect.discard_data();
-        top_affinity.discard_data();
 
         auto& rand_collection = top_layer.rand_collection_;
 
@@ -688,7 +687,6 @@ namespace deep_learning_lib
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
-                top_affinity[idx] = 0.0f;
             }
             else
             {
@@ -710,7 +708,7 @@ namespace deep_learning_lib
                 if (cur_depth_idx < longterm_memory_num)
                 {
                     // longterm memory logic: does not convolve shortterm memory in bottom layer, for simplicity
-                    array_view<const float, 3> current_longterm_memory = longterm_memory_view_[cur_depth_idx];
+                    array_view<const float, 3> current_longterm_memory = longterm_memory_weights[cur_depth_idx];
 
                     for (int depth_idx = 0; depth_idx < neuron_depth; depth_idx++)
                     {

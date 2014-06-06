@@ -208,9 +208,9 @@ namespace deep_learning_lib
         int longterm_memory_num_;
 
     public:
-        // neurons weight view only for value layer in bottom layer, no short memory part, for training
+        // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<float, 4>   neuron_weights_view_;
-        // long term memory view. For simplicity, long term memory does not have short term memory part
+        // longterm memory view [longterm_memory_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<float, 4>   longterm_memory_weights_view_;
 
         // corresponding to the depth dimension
