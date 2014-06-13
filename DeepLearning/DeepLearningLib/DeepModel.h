@@ -12,7 +12,7 @@
 
 namespace deep_learning_lib
 {
-    enum DataSlot
+    enum class DataSlot
     {
         kCurrent, kNext
     };
@@ -90,12 +90,12 @@ namespace deep_learning_lib
         {
             switch (data_slot)
             {
-            case kCurrent:
+            case DataSlot::kCurrent:
                 return std::make_pair(value_view_, expect_view_);
-            case kNext:
+            case DataSlot::kNext:
                 return std::make_pair(next_value_view_, next_expect_view_);
             default:
-                throw("DataLayer does not accept data slot type : " + std::to_string(data_slot));
+                throw("DataLayer does not accept this data slot type.");
             }
         }
 
@@ -157,12 +157,12 @@ namespace deep_learning_lib
         {
             switch (data_slot)
             {
-            case kCurrent:
+            case DataSlot::kCurrent:
                 return outputs_view_;
-            case kNext:
+            case DataSlot::kNext:
                 return next_outputs_view_;
             default:
-                throw("OutputLayer does not accept data slot type : " + std::to_string(data_slot));
+                throw("OutputLayer does not accept this data slot type.");
             }
         }
 
@@ -246,11 +246,11 @@ namespace deep_learning_lib
 
         void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
             DataLayer& top_layer, DataSlot top_slot,
-            const OutputLayer* output_layer = nullptr, DataSlot output_slot = kCurrent) const;
+            const OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
 
         void PassDown(const DataLayer& top_layer, DataSlot top_slot,
             DataLayer& bottom_layer, DataSlot bottom_slot,
-            OutputLayer* output_layer = nullptr, DataSlot output_slot = kCurrent) const;
+            OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
 
         // Not all long-term memory activations are helpful, let's filter these harmful memories.
         void SuppressMemory(DataLayer& top_layer, DataSlot top_slot,
