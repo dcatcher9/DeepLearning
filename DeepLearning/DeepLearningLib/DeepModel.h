@@ -198,6 +198,7 @@ namespace deep_learning_lib
 
         // longterm memory activation info when passing up
         // it's not stored in data layer because long term memory is transparent to data layer
+        // [longterm_memory_idx, height_idx, width_idx]
         concurrency::array_view<float, 3>   longterm_memory_affinity_view_;
         concurrency::array_view<float, 3>   longterm_memory_expect_view_;
 

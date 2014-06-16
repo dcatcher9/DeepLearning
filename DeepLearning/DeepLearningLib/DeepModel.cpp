@@ -687,17 +687,22 @@ namespace deep_learning_lib
         parallel_for_each(top_value.extent,
             [=](index<3> idx) restrict(amp)
         {
+            int top_depth_idx = idx[0];
+            int top_height_idx = idx[1];
+            int top_width_idx = idx[2];
+
             if (top_active[idx] == 0)
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
+                if (top_depth_idx < longterm_memory_num)
+                {
+                    longterm_memory_affinity[idx] = 0.0f;
+                    longterm_memory_expect[idx] = 0.0f;
+                }
             }
             else
             {
-                int top_depth_idx = idx[0];
-                int top_height_idx = idx[1];
-                int top_width_idx = idx[2];
-
                 float result = hbias[top_depth_idx];
                 float affinity = 0.0f;
 
@@ -730,13 +735,18 @@ namespace deep_learning_lib
                             }
                         }
                     }
+
+                    // Logistic activation function. Maybe more types of activation function later.
+                    float prob = 1.0f / (1.0f + fast_math::expf(-result));
+                    top_expect[idx] = prob;
+                    top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+                    longterm_memory_expect[idx] = prob;
+                    longterm_memory_affinity[idx] = affinity;
                 }
                 else
                 {
                     // neuron weight logic
-                    top_depth_idx -= longterm_memory_num;
-
-                    array_view<const float, 3> current_neuron = neuron_weights[top_depth_idx];// projection
+                    array_view<const float, 3> current_neuron = neuron_weights[top_depth_idx - longterm_memory_num];// projection
 
                     for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
                     {
@@ -767,12 +777,12 @@ namespace deep_learning_lib
                             }
                         }
                     }
-                }
 
-                // Logistic activation function. Maybe more types of activation function later.
-                float prob = 1.0f / (1.0f + fast_math::expf(-result));
-                top_expect[idx] = prob;
-                top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+                    // Logistic activation function. Maybe more types of activation function later.
+                    float prob = 1.0f / (1.0f + fast_math::expf(-result));
+                    top_expect[idx] = prob;
+                    top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
+                }
             }
         });
     }
@@ -783,7 +793,6 @@ namespace deep_learning_lib
         assert(top_layer.depth() == this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
-        assert(bottom_layer.shortterm_memory_num() == this->shortterm_memory_num());
 
         // PassDown will not touch bottom short-term memory for simplicity
 
@@ -795,17 +804,17 @@ namespace deep_learning_lib
         const int bottom_height = bottom_layer.height();
         const int bottom_width = bottom_layer.width();
 
-        array_view<const float, 4> neuron_weights = neurons_view_;
-        array_view<const float, 4> longterm_memory_weights = longterm_memory_view_;
+        array_view<const float, 4> neuron_weights = this->neuron_weights_view_;
+        array_view<const float, 4> longterm_memory_weights = this->longterm_memory_weights_view_;
         array_view<const float> vbias = vbias_view_;
-        array_view<const float, 3> top_value = std::get<0>(top_layer[top_slot]);
+        array_view<const float, 3> top_value = top_layer[top_slot].first;
 
         array_view<const int, 3> bottom_active = bottom_layer.active_view_;
 
         // writeonly
         auto bottom_data = bottom_layer[bottom_slot];
-        array_view<float, 3> bottom_value = std::get<0>(bottom_data);
-        array_view<float, 3> bottom_expect = std::get<1>(bottom_data);
+        array_view<float, 3> bottom_value = bottom_data.first;
+        array_view<float, 3> bottom_expect = bottom_data.second;
         bottom_value.discard_data();
         bottom_expect.discard_data();
 
@@ -926,18 +935,18 @@ namespace deep_learning_lib
         const int neuron_depth = this->neuron_depth();
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
-        auto bottom_data = bottom_layer[bottom_data_slot];
-        array_view<const float, 3> bottom_data_value = std::get<0>(bottom_data);
-        array_view<const float, 3> bottom_data_expect = std::get<1>(bottom_data);
-        auto bottom_model = bottom_layer[bottom_model_slot];
-        array_view<const float, 3> bottom_model_value = std::get<0>(bottom_model);
-        array_view<const float, 3> bottom_model_expect = std::get<1>(bottom_model);
+        auto& bottom_data = bottom_layer[bottom_data_slot];
+        array_view<const float, 3> bottom_data_value = bottom_data.first;
+        array_view<const float, 3> bottom_data_expect = bottom_data.second;
+        auto& bottom_model = bottom_layer[bottom_model_slot];
+        array_view<const float, 3> bottom_model_value = bottom_model.first;
+        array_view<const float, 3> bottom_model_expect = bottom_model.second;
 
         // calculate data and model similarity, based on logistic neural activation.
         // there are many ways to measure similarity, but logistic is the simplest.
         // does not consider shortterm memory
-        array_view<float, 2> top_affinity_prior_view = top_layer.affinity_prior_view_;// write only
-        parallel_for_each(top_affinity_prior_view.extent,
+        array_view<float, 2> affinity_prior_view = this->longterm_memory_affinity_prior_view_;// write only
+        parallel_for_each(affinity_prior_view.extent,
             [=](index<2> idx) restrict(amp)
         {
             int cur_height_idx = idx[0];
@@ -958,16 +967,17 @@ namespace deep_learning_lib
                 }
             }
 
-            top_affinity_prior_view[idx] = affinity;
+            affinity_prior_view[idx] = affinity;
         });
 
         // read write
-        auto top_data = top_layer[top_slot];
-        array_view<float, 3> top_value = std::get<0>(top_data).section(extent<3>(this->longterm_memory_num(), top_layer.height(), top_layer.width()));
-        array_view<float, 3> top_expect = std::get<1>(top_data).section(top_value.extent);
-        array_view<float, 3> top_affinity = std::get<2>(top_data).section(top_value.extent);
+        array_view<float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
+        auto& top_data = top_layer[top_slot];
+        array_view<float, 3> longterm_memory_value = top_data.first.section(longterm_memory_affinity.extent);
+        array_view<float, 3> longterm_memory_expect = top_data.second.section(longterm_memory_affinity.extent);
+        
 
-        parallel_for_each(top_affinity.extent,
+        parallel_for_each(longterm_memory_affinity.extent,
             [=](index<3> idx) restrict(amp)
         {
             int cur_depth_idx = idx[0];
@@ -1277,13 +1287,16 @@ namespace deep_learning_lib
 
     bool ConvolveLayer::FitLongtermMemory(const DataLayer& top_layer)
     {
-        if (longterm_memory_affinity_view_.extent == top_layer.value_view_.extent)
+        if (this->longterm_memory_num() > 0
+            && longterm_memory_affinity_view_.extent[0] == this->longterm_memory_num()
+            && longterm_memory_affinity_view_.extent[1] == top_layer.height()
+            && longterm_memory_affinity_view_.extent[2] == top_layer.width())
         {
             return false;
         }
 
         longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
-        longterm_memory_affinity_view_ = array_view<float, 3>(top_layer.depth(), top_layer.height(), top_layer.width());
+        longterm_memory_affinity_view_ = array_view<float, 3>(this->longterm_memory_num(), top_layer.height(), top_layer.width());
         longterm_memory_expect_view_ = array_view<float, 3>(longterm_memory_affinity_view_.extent);
 
         return true;
