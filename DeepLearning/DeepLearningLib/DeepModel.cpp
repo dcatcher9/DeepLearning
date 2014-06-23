@@ -940,7 +940,8 @@ namespace deep_learning_lib
         array_view<const float, 3> bottom_model_expect = bottom_layer[bottom_model_slot].second;
 
         // calculate data and model similarity, based on logistic neural activation.
-        // there are many ways to measure similarity, but logistic is the simplest.
+        // there are many ways to measure similarity, we use sum-square-error.
+        // We could also use likelihood, but it has no limit on the penalty on mismatched node.
         // does not consider shortterm memory
         array_view<float, 2> affinity_prior_view = this->longterm_memory_affinity_prior_view_;// write only
         parallel_for_each(affinity_prior_view.extent,
@@ -1048,7 +1049,7 @@ namespace deep_learning_lib
             neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
 
-        // update longterm memory weights
+        // update longterm memory weights, the key idea is k-mean clustering with weighting
         if (longterm_memory_num > 0)
         {
 
