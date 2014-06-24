@@ -16,35 +16,39 @@ namespace deep_learning_lib
 
     DataLayer::DataLayer(int shortterm_memory_num, int depth, int height, int width, int seed)
         : shortterm_memory_num_(shortterm_memory_num),
-        // put shortterm memory at the end
-        data_array_(make_extent(4 + shortterm_memory_num, depth, height, width)),
-        value_view_(data_array_[0]),
-        expect_view_(data_array_[1]),
-        next_value_view_(data_array_[2]),
-        next_expect_view_(data_array_[3]),
+        value_view_(depth, height, width),
+        expect_view_(value_view_.extent),
+        next_value_view_(value_view_.extent),
+        next_expect_view_(value_view_.extent),
         active_prob_(1.0f),
-        active_(value_view_.extent.size(), 1),
-        active_view_(value_view_.extent, active_),
-        // there is no empty array_view support in amp now, 
-        // so we just map the memory_view_ to the whole data view when the memory_num == 0
-        shortterm_memory_view_(shortterm_memory_num == 0 ? data_array_ : 
-            data_array_.section(make_index(4, 0, 0, 0), make_extent(shortterm_memory_num, depth, height, width))),
+        active_view_(value_view_.extent),
+        // there is no empty array_view support in amp now, so we just set the extent to (1,1,1,1) when the shortterm_memory_num == 0
+        shortterm_memory_view_(shortterm_memory_num == 0 ? make_extent(1, 1, 1, 1) : make_extent(shortterm_memory_num, depth, height, width)),
+        shortterm_memory_index_view_(std::max(1, shortterm_memory_num)),
         rand_collection_(value_view_.extent, seed)
     {
-        fill(data_array_, 0.0f);
+        fill(value_view_, 0.0f);
+        fill(expect_view_, 0.0f);
+        fill(next_value_view_, 0.0f);
+        fill(next_expect_view_, 0.0f);
+        fill(active_view_, 1);
+        fill(shortterm_memory_view_, 0.0f);
+        for (int time = 0; time < shortterm_memory_num; time++)
+        {
+            shortterm_memory_index_view_[time] = time;
+        }
     }
 
     DataLayer::DataLayer(DataLayer&& other)
         : shortterm_memory_num_(other.shortterm_memory_num_),
-        data_array_(std::move(other.data_array_)),
         value_view_(other.value_view_),
         expect_view_(other.expect_view_),
         next_value_view_(other.next_value_view_),
         next_expect_view_(other.next_expect_view_),
         active_prob_(other.active_prob_),
-        active_(std::move(other.active_)),
         active_view_(other.active_view_),
         shortterm_memory_view_(other.shortterm_memory_view_),
+        shortterm_memory_index_view_(other.shortterm_memory_index_view_),
         rand_collection_(other.rand_collection_)
     {
     }
@@ -61,6 +65,7 @@ namespace deep_learning_lib
 
     void DataLayer::Activate(float probability)
     {
+        // no need to change activation when the prob = 1.0 or 0.0 again.
         if (probability == active_prob_ &&
             (active_prob_ == 1.0f || active_prob_ == 0.0f))
         {
@@ -77,6 +82,26 @@ namespace deep_learning_lib
         });
 
         active_prob_ = probability;
+    }
+
+    void DataLayer::Memorize()
+    {
+        if (shortterm_memory_num() <= 0)
+        {
+            return;
+        }
+
+        int last_memory_index = shortterm_memory_index_view_(shortterm_memory_num() - 1);
+
+        concurrency::copy(value_view_, shortterm_memory_view_[last_memory_index]);
+
+        // right shift the shortterm memory index
+        for (int time = shortterm_memory_num() - 1; time > 0; time--)
+        {
+            shortterm_memory_index_view_(time) = shortterm_memory_index_view_(time - 1);
+        }
+
+        shortterm_memory_index_view_(0) = last_memory_index;
     }
 
     float DataLayer::ReconstructionError() const
@@ -97,93 +122,8 @@ namespace deep_learning_lib
         return std::sqrtf(result(0));
     }
 
-    //bool DataLayer::Memorize()
-    //{
-    //    array_view<float> diffs_view(memory_pool_size());
-
-    //    array_view<const float, 3> value_view = value_view_;
-    //    array_view<const float, 4> memory_pool_view = memory_pool_view_;
-
-    //    parallel_for_each(value_view.extent,
-    //        [=](index<3> idx) restrict(amp)
-    //    {
-    //        for (int i = 0; i < diffs_view.extent[0]; i++)
-    //        {
-    //            float diff = memory_pool_view[i][idx] - value_view[idx];
-    //            atomic_fetch_add(&diffs_view(i), diff * diff);
-    //        }
-    //    });
-
-    //    float min_diff = std::numeric_limits<float>::max();
-    //    int min_idx = -1;
-
-    //    for (int i = 0; i < diffs_view.extent[0]; i++)
-    //    {
-    //        float diff = std::sqrtf(diffs_view(i));
-    //        if (diff < min_diff)
-    //        {
-    //            min_diff = diff;
-    //            min_idx = i;
-    //        }
-    //    }
-
-    //    float recon_error = ReconstructionError();
-
-    //    // memory refreshment logic, adaboost style
-    //    if (recon_error <= min_diff)
-    //    {
-    //        // current value is too new or already well recognized. 
-    //        int min_intensity_idx = -1;
-    //        float min_intensity = std::numeric_limits<float>::max();
-
-    //        for (int j = 0; j < memory_intensity_.size(); j++)
-    //        {
-    //            float& intensity = memory_intensity_[j];
-
-    //            intensity *= kMemoryDecayRate;
-
-    //            if (intensity < min_intensity)
-    //            {
-    //                min_intensity = intensity;
-    //                min_intensity_idx = j;
-    //            }
-    //        }
-
-    //        if (recon_error > min_intensity)
-    //        {
-    //            // replace existing min_intensity_idx
-    //            value_view_.copy_to(memory_pool_view_[min_intensity_idx]);
-    //            memory_intensity_[min_intensity_idx] = recon_error;
-    //            return true;
-    //        }
-    //        // discard current value since the model is already doing well with it.
-    //    }
-    //    else // recon_error > min_diff
-    //    {
-    //        // the model is doing worse at current value than just using the closest memory
-    //        // so we replace the output with the closest memory
-    //        memory_pool_view_[min_idx].copy_to(next_value_view_);
-
-    //        if (recon_error > memory_intensity_[min_idx])
-    //        {
-    //            // current bad value is a more worthy case to remember, so we replace the closest memory with current value
-    //            value_view_.copy_to(memory_pool_view_[min_idx]);
-    //            memory_intensity_[min_idx] = recon_error;
-    //            return true;
-    //        }
-    //    }
-
-    //    return false;
-    //}
-
     bitmap_image DataLayer::GenerateImage() const
     {
-        value_view_.synchronize();
-        expect_view_.synchronize();
-        next_value_view_.synchronize();
-        next_expect_view_.synchronize();
-        memory_view_.synchronize();
-
         bitmap_image image;
 
         const int block_size = 2;
@@ -591,17 +531,15 @@ namespace deep_learning_lib
         : longterm_memory_num_(longterm_memory_num),
         neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
         longterm_memory_weights_(longterm_memory_num * neuron_depth * neuron_height * neuron_width),
-        longterm_memory_intensities_(longterm_memory_num),
         // these three views below are resized to fit bottom layer on the fly
         // they are used like temp variables
         longterm_memory_affinity_prior_view_(1, 1),
         longterm_memory_affinity_view_(1, 1, 1),
-        longterm_memory_expect_view_(1, 1, 1),
         neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
         longterm_memory_weights_view_(
-            make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, neuron_depth, neuron_height, neuron_width),
-            longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
+        make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, neuron_depth, neuron_height, neuron_width),
+        longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
         // no vbias for short-term memory because they are not generative
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
@@ -614,10 +552,8 @@ namespace deep_learning_lib
         : longterm_memory_num_(other.longterm_memory_num_),
         neuron_weights_(std::move(other.neuron_weights_)),
         longterm_memory_weights_(std::move(other.longterm_memory_weights_)),
-        longterm_memory_intensities_(std::move(other.longterm_memory_intensities_)),
         longterm_memory_affinity_prior_view_(other.longterm_memory_affinity_prior_view_),
         longterm_memory_affinity_view_(other.longterm_memory_affinity_view_),
-        longterm_memory_expect_view_(other.longterm_memory_expect_view_),
         neuron_weights_view_(other.neuron_weights_view_),
         longterm_memory_weights_view_(other.longterm_memory_weights_view_),
         vbias_(std::move(other.vbias_)),
@@ -673,12 +609,10 @@ namespace deep_learning_lib
         array_view<float, 3> top_value = top_data.first;
         array_view<float, 3> top_expect = top_data.second;
         array_view<float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
-        array_view<float, 3> longterm_memory_expect = this->longterm_memory_expect_view_;
 
         top_value.discard_data();
         top_expect.discard_data();
         longterm_memory_affinity.discard_data();
-        longterm_memory_expect.discard_data();
 
         auto& rand_collection = top_layer.rand_collection_;
 
@@ -698,7 +632,6 @@ namespace deep_learning_lib
                 if (top_depth_idx < longterm_memory_num)
                 {
                     longterm_memory_affinity[idx] = 0.0f;
-                    longterm_memory_expect[idx] = 0.0f;
                 }
             }
             else
@@ -741,7 +674,6 @@ namespace deep_learning_lib
                     float prob = 1.0f / (1.0f + fast_math::expf(-result));
                     top_expect[idx] = prob;
                     top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
-                    longterm_memory_expect[idx] = prob;
                     longterm_memory_affinity[idx] = affinity;
                 }
                 else
@@ -765,7 +697,7 @@ namespace deep_learning_lib
                     for (int memory_idx = 0; memory_idx < shortterm_memory_num; memory_idx++)
                     {
                         auto current_bottom_memory = bottom_shortterm_memory[memory_idx];
-                        
+
                         for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
                         {
                             for (int height_idx = 0; height_idx < neuron_height; height_idx++)
@@ -973,7 +905,7 @@ namespace deep_learning_lib
         auto& top_data = top_layer[top_slot];
         array_view<float, 3> longterm_memory_value = top_data.first.section(longterm_memory_affinity.extent);
         array_view<float, 3> longterm_memory_expect = top_data.second.section(longterm_memory_affinity.extent);
-        
+
         parallel_for_each(longterm_memory_affinity.extent,
             [=](index<3> idx) restrict(amp)
         {
@@ -1036,7 +968,7 @@ namespace deep_learning_lib
                     float cur_top_expect = top_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
                     float cur_top_next_expect = top_next_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
 
-                    float cur_bottom_value = shortterm_memory_idx < 0 ? 
+                    float cur_bottom_value = shortterm_memory_idx < 0 ?
                         bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx) :
                         bottom_shortterm_memories[shortterm_memory_idx](shortterm_memory_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
                     float cur_bottom_next_value = (discriminative_training || shortterm_memory_idx >= 0) ? cur_bottom_value :
@@ -1049,10 +981,43 @@ namespace deep_learning_lib
             neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
 
-        // update longterm memory weights, the key idea is k-mean clustering with weighting
+        // update longterm memory weights, the key idea is weighted k-mean clustering
         if (longterm_memory_num > 0)
         {
+            const float max_affinity = this->neuron_height() * this->neuron_width();
 
+            array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
+            array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
+
+            // non-tiled version
+            parallel_for_each(longterm_memory_weights.extent, [=](index<4> idx) restrict(amp)
+            {
+                float delta = 0.0f;
+
+                int longterm_memory_idx = idx[0];
+                int neuron_depth_idx = idx[1];
+                int neuron_height_idx = idx[2];
+                int neuron_width_idx = idx[3];
+
+                float cur_memory_weight = longterm_memory_weights[idx];
+                float cur_memory_expect = 1.0f / (1.0f + fast_math::expf(-cur_memory_weight));
+
+                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+                {
+                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                    {
+                        float memory_affinity = longterm_memory_affinity(longterm_memory_idx, top_height_idx, top_width_idx);
+                        float model_affinity = longterm_memory_affinity_prior(top_height_idx, top_width_idx);
+                        // the weight ranges from 0 to 1, enforcing richer get richer
+                        float weight = memory_affinity / max_affinity * (max_affinity - model_affinity) / max_affinity;
+                        float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+                        float derivative = -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect);
+                        delta += derivative * weight;
+                    }
+                }
+
+                longterm_memory_weights[idx] += delta / (top_height * top_width) * learning_rate;
+            });
         }
 
         // update vbias, only for generative training and only for value not shortterm memory
@@ -1144,19 +1109,13 @@ namespace deep_learning_lib
             w = distribution(generator);
         }
 
-        for (float& w : shortterm_memory_weights_)
-        {
-            w = distribution(generator);
-        }
-
         for (float& w : longterm_memory_weights_)
         {
             w = distribution(generator);
         }
 
-        neurons_view_.discard_data();
-        shortterm_memory_view_.discard_data();
-        longterm_memory_view_.discard_data();
+        neuron_weights_view_.discard_data();
+        longterm_memory_weights_view_.discard_data();
     }
 
     bitmap_image ConvolveLayer::GenerateImage() const
@@ -1274,7 +1233,6 @@ namespace deep_learning_lib
 
         longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
         longterm_memory_affinity_view_ = array_view<float, 3>(this->longterm_memory_num(), top_layer.height(), top_layer.width());
-        longterm_memory_expect_view_ = array_view<float, 3>(longterm_memory_affinity_view_.extent);
 
         return true;
     }

@@ -33,19 +33,8 @@ namespace deep_learning_lib
     class DataLayer
     {
     private:
-        // these vectors are initialized before the corresponding array_views
-
-        // internal storage for both value, expect, affinity and short term memory.
-        // simple unified storage because they all share the same structure. live on GPU directly.
-        concurrency::array<float, 4> data_array_;
+        float active_prob_; // for dropout
         int shortterm_memory_num_;
-
-        // for dropout
-        float active_prob_;
-        std::vector<int>    active_;
-
-        // if we don't forget/forgive, we cannot learn.
-        // const float kMemoryDecayRate = 0.99f;
 
     public:
         // value = longterm memory + neuron
@@ -59,6 +48,8 @@ namespace deep_learning_lib
 
         // short term memory view
         concurrency::array_view<float, 4>   shortterm_memory_view_;
+        // index into shortterm memory in temporal order.
+        concurrency::array_view<int, 1>     shortterm_memory_index_view_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -100,13 +91,10 @@ namespace deep_learning_lib
         }
 
         void Activate(float probability = 1.0f);
+        // store current value into shortterm memory.
+        void Memorize();
 
         float ReconstructionError() const;
-
-        // Memorize current value if necessary. If a memory match is found, it will replace the current next value.
-        // Data-driven, Nonparametric. Memorization is a kind of learning.
-        // Return false if current value is already well learned thus not memorized.
-        //bool Memorize();
 
         bitmap_image GenerateImage() const;
     };
@@ -190,7 +178,6 @@ namespace deep_learning_lib
     private:
         std::vector<float> neuron_weights_;
         std::vector<float> longterm_memory_weights_;
-        std::vector<float> longterm_memory_intensities_;
 
         // store how good is the reconstruction of model against true data at each positions
         // longterm memory below this threshold is suppressed, so it serves as a sparse prior
@@ -200,7 +187,6 @@ namespace deep_learning_lib
         // it's not stored in data layer because long term memory is transparent to data layer
         // [longterm_memory_idx, height_idx, width_idx]
         concurrency::array_view<float, 3>   longterm_memory_affinity_view_;
-        concurrency::array_view<float, 3>   longterm_memory_expect_view_;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
