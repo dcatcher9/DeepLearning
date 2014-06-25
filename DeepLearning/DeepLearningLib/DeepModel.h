@@ -14,7 +14,7 @@ namespace deep_learning_lib
 {
     enum class DataSlot
     {
-        kCurrent, kNext
+        kCurrent, kNext, kTemp
     };
 
     // 4-dimensional data layer, cache the intermediate result in neural network
@@ -42,6 +42,8 @@ namespace deep_learning_lib
         concurrency::array_view<float, 3>   expect_view_;
         concurrency::array_view<float, 3>   next_value_view_;
         concurrency::array_view<float, 3>   next_expect_view_;
+        concurrency::array_view<float, 3>   temp_value_view_;
+        concurrency::array_view<float, 3>   temp_expect_view_;
 
         // for dropout
         concurrency::array_view<int, 3>     active_view_;
@@ -76,7 +78,7 @@ namespace deep_learning_lib
         {
             return value_view_.extent[2];
         }
-        inline std::pair<concurrency::array_view<float, 3>, concurrency::array_view<float, 3>> 
+        inline std::pair<concurrency::array_view<float, 3>, concurrency::array_view<float, 3>>
             operator[](const DataSlot data_slot) const
         {
             switch (data_slot)
@@ -85,12 +87,15 @@ namespace deep_learning_lib
                 return std::make_pair(value_view_, expect_view_);
             case DataSlot::kNext:
                 return std::make_pair(next_value_view_, next_expect_view_);
+            case DataSlot::kTemp:
+                return std::make_pair(temp_value_view_, temp_expect_view_);
             default:
                 throw("DataLayer does not accept this data slot type.");
             }
         }
 
         void Activate(float probability = 1.0f);
+
         // store current value into shortterm memory.
         void Memorize();
 
@@ -107,8 +112,6 @@ namespace deep_learning_lib
     class OutputLayer
     {
     private:
-        std::vector<float> outputs_;
-        std::vector<float> next_outputs_;
         std::vector<float> bias_;
         std::vector<float> weights_;
 
@@ -158,12 +161,10 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(
-            const DataLayer& bottom_layer, bool bottom_switcher,
-            DataLayer& top_layer, bool top_switcher,
+        int PredictLabel(DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
             const ConvolveLayer& conv_layer, const float dropout_prob);
 
-        void PassDown(const DataLayer& top_layer, bool top_switcher, bool output_switcher);
+        void PassDown(const DataLayer& top_layer, DataSlot top_slot, DataSlot output_slot);
 
         bitmap_image GenerateImage() const;
     };
@@ -193,6 +194,7 @@ namespace deep_learning_lib
         std::vector<float> hbias_;
 
         int longterm_memory_num_;
+        int longterm_memory_depth_;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -205,7 +207,8 @@ namespace deep_learning_lib
         concurrency::array_view<float>      hbias_view_;
 
     public:
-        ConvolveLayer(int longterm_memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        ConvolveLayer(int longterm_memory_num, int longterm_memory_depth,
+            int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
@@ -213,6 +216,10 @@ namespace deep_learning_lib
         inline int longterm_memory_num() const
         {
             return longterm_memory_num_;
+        }
+        inline int longterm_memory_depth() const
+        {
+            return longterm_memory_depth_;
         }
         inline int neuron_num() const
         {
@@ -269,11 +276,11 @@ namespace deep_learning_lib
         PoolingLayer(const PoolingLayer&) = delete;
         PoolingLayer(PoolingLayer&& other);
 
-        void PassUp(const DataLayer& bottom_layer, bool bottom_switcher,
-            DataLayer& top_layer, bool top_switcher) const;
+        void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
+            DataLayer& top_layer, DataSlot top_slot) const;
 
-        void PassDown(const DataLayer& top_layer, bool top_switcher,
-            DataLayer& bottom_layer, bool bottom_switcher) const;
+        void PassDown(const DataLayer& top_layer, DataSlot top_slot,
+            DataLayer& bottom_layer, DataSlot bottom_slot) const;
     };
 
     class DeepModel
@@ -283,8 +290,13 @@ namespace deep_learning_lib
         // Disable copy constructor
         DeepModel(const DeepModel&) = delete;
 
-        void AddDataLayer(int memory_num, int depth, int height, int width);
-        void AddConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        void AddDataLayer(int shortterm_memory_num, int depth, int height, int width);
+        // deduce the parameters from the convolve layer below
+        void AddDataLayerToTop(int shortterm_memory_num);
+        void AddConvolveLayer(int longterm_memory_num, int longterm_memory_depth,
+            int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        // deduce the parameters from the data layer below
+        void AddConvolveLayerToTop(int longterm_memory_num, int neuron_num, int neuron_height, int neuron_width);
         void AddOutputLayer(int data_layer_idx, int output_num);
 
         void PassUp(const std::vector<float>& data);

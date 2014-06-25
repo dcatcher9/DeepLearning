@@ -34,6 +34,7 @@ namespace deep_learning_lib
     template<typename T, int Rank>
     inline void fill(concurrency::array_view<T, Rank>& arr, T initValue)
     {
+        arr.discard_data();
         concurrency::parallel_for_each(arr.extent,
             [=](concurrency::index<Rank> idx) restrict(amp)
         {
