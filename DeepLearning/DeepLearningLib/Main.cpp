@@ -96,26 +96,23 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(600, 1, 16, 16);
-    model.AddDataLayer(600, 1, 1, 1);
-    model.AddOutputLayer(1, 10);
-
-    /*for (int i = 0; i < 1000; i++)
-    {
-    float err = model.TrainLayer(data.front(), 0, 0.1f);
-    std::cout << "iter = " << i << " err = " << err << std::endl;
-    }*/
+    model.AddConvolveLayer(600, 8, 8);
+    model.AddDataLayer();
+    model.AddOutputLayer(10);
 
     const float dropout_prob = 0.5f;
+    std::uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    /*for (int i = 0; i < 500; i++)
+    for (int i = 0; i < 500; i++)
     {
-        model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10);
+        size_t idx = index_rand(generator);
+        const auto& data = train_data[idx];
+        const auto label = train_labels[idx];
+        model.TrainLayer(data, 0, 0.2f, dropout_prob, label, false);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
-        std::cout << "Precision = " << precision << std::endl;
-    }*/
+        std::cout << "P = " << precision << std::endl;
+    }
 
-    model.TrainLayer(train_data, 0, 10, 0.2f, dropout_prob, 1000);
 
     model.GenerateImages("model_dump");
 }
@@ -184,29 +181,22 @@ void TestRBM()
     DeepModel model;
 
     model.AddDataLayer(256, 1, 1);
-    model.AddConvolveLayer(600, 256, 1, 1);
-    model.AddDataLayer(600, 1, 1, 1);
-    model.AddOutputLayer(1, 10);
-
-    /*for (int i = 0; i < 1000; i++)
-    {
-    float err = model.TrainLayer(data.front(), labels.front(), 0, 0.1f, 0.5f);
-    std::cout << "iter = " << i << " err = " << err << std::endl;
-    }*/
+    model.AddOutputLayer(10);
+    model.AddConvolveLayer(600, 1, 1);
+    model.AddDataLayer();
 
     const float dropout_prob = 0.5f;
+    std::uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    model.TrainLayer(train_data, 0, 10, 0.2f, dropout_prob, 1000);
-
-    /*
     for (int i = 0; i < 500; i++)
     {
-    model.TrainLayer(train_data, train_labels, 0, 10, 0.2f, dropout_prob, 10, false);
-    float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
-    std::cout << "Precision = " << precision << std::endl;
+        size_t idx = index_rand(generator);
+        const auto& data = train_data[idx];
+        const auto label = train_labels[idx];
+        model.TrainLayer(data, 0, 0.2f, dropout_prob, label, false);
+        float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+        std::cout << "P = " << precision << std::endl;
     }
-    */
-
 
     model.GenerateImages("model_dump");
 }

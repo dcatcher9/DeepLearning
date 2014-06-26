@@ -62,7 +62,7 @@ namespace deep_learning_lib
         assert(data.size() == value_view_.extent.size());
 
         // Copy the data
-        concurrency::copy(data, value_view_);
+        concurrency::copy(data.begin(), data.end(), value_view_);
 
         Activate();
     }
@@ -952,7 +952,7 @@ namespace deep_learning_lib
         // update longterm memory weights, the key idea is weighted k-mean clustering
         if (longterm_memory_num > 0)
         {
-            const float max_affinity = this->neuron_height() * this->neuron_width();
+            const float max_affinity = static_cast<float>(this->neuron_height() * this->neuron_width());
 
             array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
             array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
@@ -1067,6 +1067,22 @@ namespace deep_learning_lib
         }
     }
 
+    bool ConvolveLayer::FitLongtermMemory(const DataLayer& top_layer)
+    {
+        if (this->longterm_memory_num() > 0
+            && longterm_memory_affinity_view_.extent[0] == this->longterm_memory_num()
+            && longterm_memory_affinity_view_.extent[1] == top_layer.height()
+            && longterm_memory_affinity_view_.extent[2] == top_layer.width())
+        {
+            return false;
+        }
+
+        longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
+        longterm_memory_affinity_view_ = array_view<float, 3>(this->longterm_memory_num(), top_layer.height(), top_layer.width());
+
+        return true;
+    }
+
     void ConvolveLayer::RandomizeParams(unsigned int seed)
     {
         std::default_random_engine generator(seed);
@@ -1084,22 +1100,6 @@ namespace deep_learning_lib
 
         neuron_weights_view_.refresh();
         longterm_memory_weights_view_.refresh();
-    }
-
-    bool ConvolveLayer::FitLongtermMemory(const DataLayer& top_layer)
-    {
-        if (this->longterm_memory_num() > 0
-            && longterm_memory_affinity_view_.extent[0] == this->longterm_memory_num()
-            && longterm_memory_affinity_view_.extent[1] == top_layer.height()
-            && longterm_memory_affinity_view_.extent[2] == top_layer.width())
-        {
-            return false;
-        }
-
-        longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
-        longterm_memory_affinity_view_ = array_view<float, 3>(this->longterm_memory_num(), top_layer.height(), top_layer.width());
-
-        return true;
     }
 
     bitmap_image ConvolveLayer::GenerateImage() const
@@ -1358,118 +1358,221 @@ namespace deep_learning_lib
 
     }
 
-    void DeepModel::AddDataLayer(int memory_num, int depth, int height, int width)
+    void DeepModel::AddDataLayer(int depth, int height, int width, int shortterm_memory_num)
     {
-        data_layers_.emplace_back(memory_num, depth, height, width, std::uniform_int_distribution<int>()(random_engine_));
+        assert(layer_stack_.empty());
+        data_layers_.emplace_back(shortterm_memory_num, depth, height, width, std::uniform_int_distribution<int>()(random_engine_));
+        layer_stack_.emplace_back(LayerType::kDataLayer, data_layers_.size() - 1);
     }
 
-    void DeepModel::AddConvolveLayer(int memory_num, int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
+    void DeepModel::AddDataLayer(int shortterm_memory_num)
     {
-        convolve_layers_.emplace_back(memory_num, neuron_num, neuron_depth, neuron_height, neuron_width);
+        assert(layer_stack_.size() >= 2);
+        assert(layer_stack_.back().first == LayerType::kConvolveLayer || layer_stack_.back().first == LayerType::kPoolingLayer);
+        assert(layer_stack_[layer_stack_.size() - 2].first == LayerType::kDataLayer);
+
+        const auto& last_data_layer = data_layers_[layer_stack_[layer_stack_.size() - 2].second];
+        if (layer_stack_.back().first == LayerType::kConvolveLayer)
+        {
+            auto& conv_layer = convolve_layers_[layer_stack_.back().second];
+            data_layers_.emplace_back(shortterm_memory_num,
+                conv_layer.longterm_memory_num() + conv_layer.neuron_num(),
+                last_data_layer.height() - conv_layer.neuron_height() + 1,
+                last_data_layer.width() - conv_layer.neuron_width() + 1,
+                std::uniform_int_distribution<int>()(random_engine_));
+            if (conv_layer.longterm_memory_num() > 0)
+            {
+                conv_layer.FitLongtermMemory(data_layers_.back());
+            }
+        }
+        else
+        {
+            const auto& pooling_layer = pooling_layers[layer_stack_.back().second];
+            assert(last_data_layer.height() % pooling_layer.block_height() == 0);
+            assert(last_data_layer.width() % pooling_layer.block_width() == 0);
+            data_layers_.emplace_back(shortterm_memory_num,
+                last_data_layer.depth(),
+                last_data_layer.height() / pooling_layer.block_height(),
+                last_data_layer.width() / pooling_layer.block_width(),
+                std::uniform_int_distribution<int>()(random_engine_));
+        }
+        layer_stack_.emplace_back(LayerType::kDataLayer, data_layers_.size() - 1);
+    }
+
+    void DeepModel::AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width, int longterm_memory_num)
+    {
+        assert(!layer_stack_.empty() && layer_stack_.back().first == LayerType::kDataLayer);
+        const auto& last_data_layer = data_layers_[layer_stack_.back().second];
+        convolve_layers_.emplace_back(longterm_memory_num, last_data_layer.depth(),
+            neuron_num, last_data_layer.depth() * (1 + last_data_layer.shortterm_memory_num()), neuron_height, neuron_width);
         convolve_layers_.back().RandomizeParams(std::uniform_int_distribution<int>()(random_engine_));
+        layer_stack_.emplace_back(LayerType::kConvolveLayer, convolve_layers_.size() - 1);
     }
 
-    void DeepModel::AddOutputLayer(int data_layer_idx, int output_num)
+    void DeepModel::AddOutputLayer(int output_num)
     {
-        auto& data_layer = data_layers_[data_layer_idx];
+        assert(!layer_stack_.empty() && layer_stack_.back().first == LayerType::kDataLayer);
+        auto last_data_layer_idx = layer_stack_.back().second;
+        const auto& last_data_layer = data_layers_[last_data_layer_idx];
 
-        output_layers_.emplace(std::piecewise_construct, std::forward_as_tuple(data_layer_idx),
-            std::forward_as_tuple(output_num, data_layer.depth(), data_layer.height(), data_layer.width()));
+        if (!output_layers_.count(last_data_layer_idx))
+        {
+            output_layers_.emplace(std::piecewise_construct, std::forward_as_tuple(last_data_layer_idx),
+                std::forward_as_tuple(output_num, last_data_layer.depth(), last_data_layer.height(), last_data_layer.width()));
 
-        output_layers_.at(data_layer_idx).RandomizeParams(std::uniform_int_distribution<int>()(random_engine_));
+            output_layers_.at(last_data_layer_idx).RandomizeParams(std::uniform_int_distribution<int>()(random_engine_));
+        }
     }
 
     void DeepModel::PassUp(const std::vector<float>& data)
     {
-        auto& bottom_layer = data_layers_.front();
-        bottom_layer.SetValue(data);
+        assert(!layer_stack_.empty() && layer_stack_.front().first == LayerType::kDataLayer);
 
-        for (int conv_layer_idx = 0; conv_layer_idx < convolve_layers_.size(); conv_layer_idx++)
+        // set the bottom data layer
+        data_layers_[layer_stack_.front().second].SetValue(data);
+
+        for (int layer_idx = 1; layer_idx + 1 < layer_stack_.size(); layer_idx += 2)
         {
-            auto& conv_layer = convolve_layers_[conv_layer_idx];
-            auto& bottom_data_layer = data_layers_[conv_layer_idx];
-            auto& top_data_layer = data_layers_[conv_layer_idx + 1];
-
+            assert(layer_stack_[layer_idx - 1].first == LayerType::kDataLayer);
+            assert(layer_stack_[layer_idx + 1].first == LayerType::kDataLayer);
+            auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx - 1].second];
+            auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 1].second];
             top_data_layer.Activate();
 
-            conv_layer.PassUp(bottom_data_layer, true, top_data_layer, true);
+            assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer || layer_stack_[layer_idx].first == LayerType::kPoolingLayer);
+            if (layer_stack_[layer_idx].first == LayerType::kConvolveLayer)
+            {
+                const auto& conv_layer = convolve_layers_[layer_stack_[layer_idx].second];
+                conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent);
+                if (conv_layer.longterm_memory_num() > 0)
+                {
+                    conv_layer.PassDown(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kTemp);
+                    conv_layer.SuppressMemory(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kCurrent, DataSlot::kTemp);
+                }
+            }
+            else
+            {
+                const auto& pooling_layer = pooling_layers[layer_stack_[layer_idx].second];
+                pooling_layer.PassUp(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent);
+            }
         }
     }
 
     void DeepModel::PassDown()
     {
+        assert(!layer_stack_.empty() && layer_stack_.back().first == LayerType::kDataLayer);
+
         // prepare top layer for passing down
-        auto& roof_data_layer = data_layers_.back();
+        auto& roof_data_layer = data_layers_[layer_stack_.back().second];
         roof_data_layer.value_view_.copy_to(roof_data_layer.next_value_view_);
+        roof_data_layer.expect_view_.copy_to(roof_data_layer.next_expect_view_);
 
-        for (int conv_layer_idx = (int)convolve_layers_.size() - 1; conv_layer_idx >= 0; conv_layer_idx--)
+        for (int layer_idx = (int)convolve_layers_.size() - 2; layer_idx >= 1; layer_idx -= 2)
         {
-            auto& conv_layer = convolve_layers_[conv_layer_idx];
-            auto& bottom_data_layer = data_layers_[conv_layer_idx];
-            auto& top_data_layer = data_layers_[conv_layer_idx + 1];
-
+            assert(layer_stack_[layer_idx - 1].first == LayerType::kDataLayer);
+            assert(layer_stack_[layer_idx + 1].first == LayerType::kDataLayer);
+            auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx - 1].second];
+            auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 1].second];
             bottom_data_layer.Activate();
 
-            conv_layer.PassDown(top_data_layer, false, bottom_data_layer, false);
+            assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer || layer_stack_[layer_idx].first == LayerType::kPoolingLayer);
+            if (layer_stack_[layer_idx].first == LayerType::kConvolveLayer)
+            {
+                const auto& conv_layer = convolve_layers_[layer_stack_[layer_idx].second];
+                conv_layer.PassDown(top_data_layer, DataSlot::kNext, bottom_data_layer, DataSlot::kNext);
+            }
+            else
+            {
+                const auto& pooling_layer = pooling_layers[layer_stack_[layer_idx].second];
+                pooling_layer.PassDown(top_data_layer, DataSlot::kNext, bottom_data_layer, DataSlot::kNext);
+            }
         }
     }
 
-    float DeepModel::TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob,
-        const int label, bool discriminative_training)
+    float DeepModel::TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate,
+        float dropout_prob, const int label, bool discriminative_training)
     {
-        auto& bottom_layer = data_layers_[layer_idx];
-        auto& top_layer = data_layers_[layer_idx + 1];
+        assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer);
+        assert(layer_idx >= 1 && layer_stack_[layer_idx - 1].first == LayerType::kDataLayer);
+        assert(layer_stack_[layer_idx + 1].first == LayerType::kDataLayer);
 
-        auto& conv_layer = convolve_layers_[layer_idx];
+        auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx - 1].second];
+        auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 1].second];
+
+        auto& conv_layer = convolve_layers_[layer_stack_[layer_idx].second];
 
         // train with contrastive divergence (CD) algorithm to maximize likelihood on dataset
-        bottom_layer.SetValue(data);
-        top_layer.Activate(1.0f - dropout_prob);
+        bottom_data_layer.SetValue(data);
+        top_data_layer.Activate(1.0f - dropout_prob);
 
         if (label == -1)
         {
             // purely generative training without label
-            conv_layer.PassUp(bottom_layer, true, top_layer, true);
-            conv_layer.PassDown(top_layer, true, bottom_layer, false);
-            conv_layer.PassUp(bottom_layer, false, top_layer, false);
+            conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent);
+            if (conv_layer.longterm_memory_num() > 0)
+            {
+                conv_layer.PassDown(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kTemp);
+                conv_layer.SuppressMemory(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kCurrent, DataSlot::kTemp);
+            }
+            conv_layer.PassDown(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kNext);
+            conv_layer.PassUp(bottom_data_layer, DataSlot::kNext, top_data_layer, DataSlot::kNext);
 
-            conv_layer.Train(bottom_layer, top_layer, learning_rate);
+            conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate);
         }
         else
         {
             // training data has label
-            auto& output_layer = output_layers_.at(layer_idx + 1);
+            auto& output_layer = output_layers_.at(layer_stack_[layer_idx - 1].second);
             output_layer.SetLabel(label);
 
-            conv_layer.PassUp(bottom_layer, true, top_layer, true, &output_layer, true);
+            conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent,
+                top_data_layer, DataSlot::kCurrent, &output_layer, DataSlot::kCurrent);
+            if (conv_layer.longterm_memory_num() > 0)
+            {
+                conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
+                    bottom_data_layer, DataSlot::kTemp, &output_layer, DataSlot::kTemp);
+                // TODO: support memory suppression based on both data and label.
+                // currently only data is considered.
+                conv_layer.SuppressMemory(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kCurrent, DataSlot::kTemp);
+            }
 
             if (discriminative_training)
             {
-                output_layer.PassDown(top_layer, true, false);
-                conv_layer.PassUp(bottom_layer, true, top_layer, false, &output_layer, false);
+                output_layer.PassDown(top_data_layer, DataSlot::kCurrent, DataSlot::kNext);
+                conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent,
+                    top_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
             }
             else
             {
-                conv_layer.PassDown(top_layer, true, bottom_layer, false, &output_layer, false);
-                conv_layer.PassUp(bottom_layer, false, top_layer, false, &output_layer, false);
+                conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
+                    bottom_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
+                conv_layer.PassUp(bottom_data_layer, DataSlot::kNext,
+                    top_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
             }
 
-            conv_layer.Train(bottom_layer, top_layer, learning_rate, &output_layer, discriminative_training);
+            conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
         }
 
-        return bottom_layer.ReconstructionError();
+        return bottom_data_layer.ReconstructionError();
     }
 
     int DeepModel::PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob)
     {
-        auto& bottom_layer = data_layers_[layer_idx];
-        auto& top_layer = data_layers_[layer_idx + 1];
-        auto& conv_layer = convolve_layers_[layer_idx];
-        auto& output_layer = output_layers_.at(layer_idx + 1);
+        assert(layer_idx >= 0 && layer_idx + 2 < layer_stack_.size()
+            && layer_stack_[layer_idx].first == LayerType::kDataLayer
+            && layer_stack_[layer_idx + 1].first == LayerType::kConvolveLayer
+            && layer_stack_[layer_idx + 2].first == LayerType::kDataLayer);
 
-        bottom_layer.SetValue(data);
+        auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx].second];
+        auto& conv_layer = convolve_layers_[layer_stack_[layer_idx + 1].second];
+        auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 2].second];
+
+        auto& output_layer = output_layers_.at(layer_stack_[layer_idx].second);
+
+        bottom_data_layer.SetValue(data);
         // top layer activation is ignored when predicting labels
-        return output_layer.PredictLabel(bottom_layer, true, top_layer, true, conv_layer, dropout_prob);
+        return output_layer.PredictLabel(bottom_data_layer, DataSlot::kCurrent,
+            top_data_layer, DataSlot::kCurrent, conv_layer, dropout_prob);
     }
 
     float DeepModel::Evaluate(const std::vector<const std::vector<float>>& dataset, const std::vector<const int>& labels,

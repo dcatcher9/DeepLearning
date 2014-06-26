@@ -254,19 +254,18 @@ namespace deep_learning_lib
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
             OutputLayer* output_layer = nullptr, bool discriminative_training = false);
 
+        bool FitLongtermMemory(const DataLayer& top_layer);
+
         void RandomizeParams(unsigned int seed);
 
         bitmap_image GenerateImage() const;
-
-    private:
-        bool FitLongtermMemory(const DataLayer& top_layer);
     };
 
     // Pooling layer after convolution, no params. 
     // Currently support max pooling, which is the most common pooling method.
     class PoolingLayer
     {
-    public:
+    private:
         int block_height_;
         int block_width_;
 
@@ -275,6 +274,15 @@ namespace deep_learning_lib
         // Disable copy constructor
         PoolingLayer(const PoolingLayer&) = delete;
         PoolingLayer(PoolingLayer&& other);
+
+        inline int block_height() const
+        {
+            return block_height_;
+        }
+        inline int block_width() const
+        {
+            return block_width_;
+        }
 
         void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
             DataLayer& top_layer, DataSlot top_slot) const;
@@ -290,19 +298,21 @@ namespace deep_learning_lib
         // Disable copy constructor
         DeepModel(const DeepModel&) = delete;
 
-        void AddDataLayer(int shortterm_memory_num, int depth, int height, int width);
+        // only used for adding the first data layer
+        void AddDataLayer(int depth, int height, int width, int shortterm_memory_num = 0);
         // deduce the parameters from the convolve layer below
-        void AddDataLayerToTop(int shortterm_memory_num);
-        void AddConvolveLayer(int longterm_memory_num, int longterm_memory_depth,
-            int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        void AddDataLayer(int shortterm_memory_num = 0);
+
         // deduce the parameters from the data layer below
-        void AddConvolveLayerToTop(int longterm_memory_num, int neuron_num, int neuron_height, int neuron_width);
-        void AddOutputLayer(int data_layer_idx, int output_num);
+        void AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width, int longterm_memory_num = 0);
+
+        void AddOutputLayer(int output_num);
 
         void PassUp(const std::vector<float>& data);
         void PassDown();
 
-        float TrainLayer(const std::vector<float>& data, int layer_idx, float learning_rate, float dropout_prob,
+        float TrainLayer(const std::vector<float>& data, int layer_idx,
+            float learning_rate, float dropout_prob,
             const int label = -1, bool discriminative_training = false);
 
         int PredictLabel(const std::vector<float>& data, const int layer_idx, const float dropout_prob);
@@ -313,9 +323,24 @@ namespace deep_learning_lib
         void GenerateImages(const std::string& folder) const;
 
     private:
+        enum class LayerType
+        {
+            kDataLayer, kConvolveLayer, kPoolingLayer, kOutputLayer
+        };
+
+        // layer type -> the index into each vector of that type
+        // common pattern: data layer <-> convolve layer <-> data layer <-> pooling layer <-> data layer <-> convolve layer ...
+        std::vector<std::pair<LayerType, size_t>> layer_stack_;
+
         std::vector<DataLayer> data_layers_;
         std::vector<ConvolveLayer> convolve_layers_;
-        std::unordered_map<int, OutputLayer> output_layers_;
+        std::vector<PoolingLayer> pooling_layers;
+
+        // data layer index => output layer. 
+        // please note that output layer is attached to data layer only. 
+        // the data flow differs from other layer types, so I exclude it from the layer stack.
+        std::unordered_map<size_t, OutputLayer> output_layers_;
+
         std::default_random_engine random_engine_;
     };
 }
