@@ -108,7 +108,7 @@ void TestUSPS()
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        model.TrainLayer(data, 0, 0.2f, dropout_prob, label, false);
+        model.TrainLayer(data, 1, 0.2f, dropout_prob, label, false);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "P = " << precision << std::endl;
     }
@@ -181,9 +181,9 @@ void TestRBM()
     DeepModel model;
 
     model.AddDataLayer(256, 1, 1);
-    model.AddOutputLayer(10);
     model.AddConvolveLayer(600, 1, 1);
     model.AddDataLayer();
+    model.AddOutputLayer(10);
 
     const float dropout_prob = 0.5f;
     std::uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
@@ -193,7 +193,7 @@ void TestRBM()
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        model.TrainLayer(data, 0, 0.2f, dropout_prob, label, false);
+        model.TrainLayer(data, 1, 0.2f, dropout_prob, label, false);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
         std::cout << "P = " << precision << std::endl;
     }
@@ -203,6 +203,6 @@ void TestRBM()
 
 void main()
 {
-    TestUSPS();
-    //TestRBM();
+    //TestUSPS();
+    TestRBM();
 }

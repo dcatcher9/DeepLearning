@@ -303,9 +303,12 @@ namespace deep_learning_lib
         // pass up with full activation in top layers
         top_layer.Activate();
         conv_layer.PassUp(bottom_layer, bottom_slot, top_layer, top_slot);
-        conv_layer.PassDown(top_layer, top_slot, bottom_layer, DataSlot::kTemp);
-        conv_layer.SuppressMemory(top_layer, top_slot, bottom_layer, bottom_slot, DataSlot::kTemp);
-
+        if (conv_layer.longterm_memory_num() > 0)
+        {
+            conv_layer.PassDown(top_layer, top_slot, bottom_layer, DataSlot::kTemp);
+            conv_layer.SuppressMemory(top_layer, top_slot, bottom_layer, bottom_slot, DataSlot::kTemp);
+        }
+        
         // read only
         const int top_depth = top_layer.depth();
         const int top_height = top_layer.height();
@@ -568,7 +571,7 @@ namespace deep_learning_lib
         array_view<const float, 4> output_weights = !output_layer_exist ? s_empty_output_weights : output_layer->weights_view_;
 
         // writeonly
-        auto top_data = top_layer[top_slot];
+        auto& top_data = top_layer[top_slot];
         array_view<float, 3> top_value = top_data.first;
         array_view<float, 3> top_expect = top_data.second;
         array_view<float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
@@ -707,7 +710,7 @@ namespace deep_learning_lib
         array_view<const int, 3> bottom_active = bottom_layer.active_view_;
 
         // writeonly
-        auto bottom_data = bottom_layer[bottom_slot];
+        auto& bottom_data = bottom_layer[bottom_slot];
         array_view<float, 3> bottom_value = bottom_data.first;
         array_view<float, 3> bottom_expect = bottom_data.second;
         bottom_value.discard_data();
@@ -1522,7 +1525,7 @@ namespace deep_learning_lib
         else
         {
             // training data has label
-            auto& output_layer = output_layers_.at(layer_stack_[layer_idx - 1].second);
+            auto& output_layer = output_layers_.at(layer_stack_[layer_idx + 1].second);
             output_layer.SetLabel(label);
 
             conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent,
@@ -1567,7 +1570,7 @@ namespace deep_learning_lib
         auto& conv_layer = convolve_layers_[layer_stack_[layer_idx + 1].second];
         auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 2].second];
 
-        auto& output_layer = output_layers_.at(layer_stack_[layer_idx].second);
+        auto& output_layer = output_layers_.at(layer_stack_[layer_idx + 2].second);
 
         bottom_data_layer.SetValue(data);
         // top layer activation is ignored when predicting labels
