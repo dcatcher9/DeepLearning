@@ -500,8 +500,8 @@ namespace deep_learning_lib
         neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
         longterm_memory_weights_view_(
-        make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, longterm_memory_depth, neuron_height, neuron_width),
-        longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
+            make_extent(longterm_memory_num == 0 ? neuron_num : longterm_memory_num, longterm_memory_depth, neuron_height, neuron_width),
+            longterm_memory_num == 0 ? neuron_weights_ : longterm_memory_weights_),
         // no vbias for short-term memory because they are not generative
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
@@ -556,7 +556,7 @@ namespace deep_learning_lib
 
         array_view<const float, 4> neuron_weights = this->neuron_weights_view_;
         array_view<const float, 4> longterm_memory_weights = this->longterm_memory_weights_view_;
-        array_view<const float> hbias = hbias_view_;
+        array_view<const float> hbias = this->hbias_view_;
         array_view<const float, 3> bottom_value = bottom_layer[bottom_slot].first;
         array_view<const float, 4> bottom_shortterm_memory = bottom_layer.shortterm_memory_view_;
         array_view<const int, 1> bottom_shortterm_memory_index = bottom_layer.shortterm_memory_index_view_;
@@ -704,7 +704,7 @@ namespace deep_learning_lib
 
         array_view<const float, 4> neuron_weights = this->neuron_weights_view_;
         array_view<const float, 4> longterm_memory_weights = this->longterm_memory_weights_view_;
-        array_view<const float> vbias = vbias_view_;
+        array_view<const float> vbias = this->vbias_view_;
         array_view<const float, 3> top_value = top_layer[top_slot].first;
 
         array_view<const int, 3> bottom_active = bottom_layer.active_view_;
@@ -1555,6 +1555,9 @@ namespace deep_learning_lib
 
             conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
         }
+
+        // update shortterm memory
+        bottom_data_layer.Memorize();
 
         return bottom_data_layer.ReconstructionError();
     }

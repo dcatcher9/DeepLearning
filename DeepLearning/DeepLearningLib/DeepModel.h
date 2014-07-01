@@ -90,7 +90,7 @@ namespace deep_learning_lib
             case DataSlot::kTemp:
                 return std::make_pair(temp_value_view_, temp_expect_view_);
             default:
-                throw("DataLayer does not accept this data slot type.");
+                throw("Invalid data slot type for data layer.");
             }
         }
 
@@ -152,8 +152,10 @@ namespace deep_learning_lib
                 return outputs_view_;
             case DataSlot::kNext:
                 return next_outputs_view_;
+            case DataSlot::kTemp:
+                throw("OutputLayer does not accept kTemp data slot yet.");
             default:
-                throw("OutputLayer does not accept this data slot type.");
+                throw("Invalid data slot type for output layer.");
             }
         }
 
