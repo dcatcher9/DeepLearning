@@ -7,7 +7,7 @@
 
 namespace deep_learning_lib
 {
-    float atomic_fetch_add(float *_Dest, const float _Value) restrict(amp)
+    inline float atomic_fetch_add(float *_Dest, const float _Value) restrict(amp)
     {
         float oldVal = *_Dest;
         float newVal;

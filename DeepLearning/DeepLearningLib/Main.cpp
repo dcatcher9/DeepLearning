@@ -10,17 +10,18 @@
 #include "cpplinq.hpp"
 
 using namespace deep_learning_lib;
+using namespace std;
 
-std::vector<std::string> split(const std::string& s, const std::string& delim, const bool keep_empty = true) {
-    std::vector<std::string> result;
+vector<string> split(const string& s, const string& delim, const bool keep_empty = true) {
+    vector<string> result;
     if (delim.empty()) {
         result.push_back(s);
         return result;
     }
-    std::string::const_iterator substart = s.begin(), subend;
+    string::const_iterator substart = s.begin(), subend;
     while (true) {
         subend = search(substart, s.end(), delim.begin(), delim.end());
-        std::string temp(substart, subend);
+        string temp(substart, subend);
         if (keep_empty || !temp.empty()) {
             result.push_back(temp);
         }
@@ -36,36 +37,36 @@ void TestUSPS()
 {
     using namespace cpplinq;
 
-    std::ifstream ifs(".\\Data Files\\usps_all.txt");
+    ifstream ifs(".\\Data Files\\usps_all.txt");
 
-    std::string line;
-    std::getline(ifs, line);
+    string line;
+    getline(ifs, line);
 
-    std::vector<std::string> headers = split(line, " ");
-    int row_count = std::stoi(headers[0]);
-    int row_len = std::stoi(headers[1]);
+    vector<string> headers = split(line, " ");
+    int row_count = stoi(headers[0]);
+    int row_len = stoi(headers[1]);
 
     const float train_fraction = 0.8f;
 
-    std::vector<const std::vector<float>> train_data;
-    std::vector<const int> train_labels;
+    vector<const vector<float>> train_data;
+    vector<const int> train_labels;
 
-    std::vector<const std::vector<float>> test_data;
-    std::vector<const int> test_labels;
+    vector<const vector<float>> test_data;
+    vector<const int> test_labels;
 
     train_data.reserve(row_count);
     train_labels.reserve(row_count);
     test_data.reserve(row_count);
     test_labels.reserve(row_count);
 
-    std::default_random_engine generator;
-    std::uniform_real_distribution<float> rand;
+    default_random_engine generator;
+    uniform_real_distribution<float> rand;
 
-    while (std::getline(ifs, line))
+    while (getline(ifs, line))
     {
         auto bits = split(line, " ", false);
-        auto data_bits = from(bits) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
-        auto label_bits = from(bits) >> skip(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
+        auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
 
         if (rand(generator) < train_fraction)
         {
@@ -101,7 +102,7 @@ void TestUSPS()
     model.AddOutputLayer(10);
 
     const float dropout_prob = 0.5f;
-    std::uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
+    uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
     for (int i = 0; i < 500; i++)
     {
@@ -110,7 +111,7 @@ void TestUSPS()
         const auto label = train_labels[idx];
         model.TrainLayer(data, 1, 0.2f, dropout_prob, label, false);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
-        std::cout << "P = " << precision << std::endl;
+        cout << "P = " << precision << endl;
     }
 
 
@@ -121,36 +122,36 @@ void TestRBM()
 {
     using namespace cpplinq;
 
-    std::ifstream ifs(".\\Data Files\\usps_all.txt");
+    ifstream ifs(".\\Data Files\\usps_all.txt");
 
-    std::string line;
-    std::getline(ifs, line);
+    string line;
+    getline(ifs, line);
 
-    std::vector<std::string> headers = split(line, " ");
-    int row_count = std::stoi(headers[0]);
-    int row_len = std::stoi(headers[1]);
+    vector<string> headers = split(line, " ");
+    int row_count = stoi(headers[0]);
+    int row_len = stoi(headers[1]);
 
     const float train_fraction = 0.9f;
 
-    std::vector<const std::vector<float>> train_data;
-    std::vector<const int> train_labels;
+    vector<const vector<float>> train_data;
+    vector<const int> train_labels;
 
-    std::vector<const std::vector<float>> test_data;
-    std::vector<const int> test_labels;
+    vector<const vector<float>> test_data;
+    vector<const int> test_labels;
 
     train_data.reserve(row_count);
     train_labels.reserve(row_count);
     test_data.reserve(row_count);
     test_labels.reserve(row_count);
 
-    std::default_random_engine generator;
-    std::uniform_real_distribution<float> rand;
+    default_random_engine generator;
+    uniform_real_distribution<float> rand;
 
-    while (std::getline(ifs, line))
+    while (getline(ifs, line))
     {
         auto bits = split(line, " ", false);
-        auto data_bits = from(bits) >> take(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
-        auto label_bits = from(bits) >> skip(row_len) >> select([](const std::string& s){return std::stof(s); }) >> to_vector();
+        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
+        auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
 
         if (rand(generator) < train_fraction)
         {
@@ -185,8 +186,8 @@ void TestRBM()
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
-    const float dropout_prob = 0.5f;
-    std::uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
+    const float dropout_prob = 0.1f;
+    uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
     for (int i = 0; i < 500; i++)
     {
@@ -195,7 +196,7 @@ void TestRBM()
         const auto label = train_labels[idx];
         model.TrainLayer(data, 1, 0.2f, dropout_prob, label, false);
         float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
-        std::cout << "P = " << precision << std::endl;
+        cout << "P = " << precision << endl;
     }
 
     model.GenerateImages("model_dump");
@@ -203,6 +204,6 @@ void TestRBM()
 
 void main()
 {
-    TestUSPS();
-    //TestRBM();
+    //TestUSPS();
+    TestRBM();
 }
