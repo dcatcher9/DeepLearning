@@ -8,8 +8,9 @@
 
 namespace deep_learning_lib
 {
-    using namespace concurrency;
     using namespace std;
+    using namespace concurrency;
+    using namespace concurrency::precise_math;
 
 #pragma region data layer
 
@@ -339,10 +340,8 @@ namespace deep_learning_lib
                 {
                     for (int width_idx = 0; width_idx < top_width; width_idx++)
                     {
-                        //float current_top_expect = top_expect(depth_idx, height_idx, width_idx);
-                        float score = top_raw_weight(depth_idx, height_idx, width_idx)//fast_math::logf(current_top_expect) - fast_math::logf(1.0f - current_top_expect)
-                            + current_output_weights(depth_idx, height_idx, width_idx);
-                        result += fast_math::logf((fast_math::expf(score) + 1.0f) * (1.0f - dropout_prob) + 2.0f * dropout_prob);
+                        float score = top_raw_weight(depth_idx, height_idx, width_idx) + current_output_weights(depth_idx, height_idx, width_idx);
+                        result += logf((expf(score) + 1.0f) * (1.0f - dropout_prob) + 2.0f * dropout_prob);
                     }
                 }
             }
@@ -403,7 +402,7 @@ namespace deep_learning_lib
                 }
             }
 
-            output_value[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+            output_value[idx] = 1.0f / (1.0f + expf(-result));
         });
     }
 
@@ -638,7 +637,7 @@ namespace deep_learning_lib
                                 float memory = current_longterm_memory(depth_idx, height_idx, width_idx);
                                 result += value * memory;
                                 // here memory is weight, so we take logistic transform
-                                float diff = 1.0f / (1.0f + fast_math::expf(-memory)) - value;
+                                float diff = 1.0f / (1.0f + expf(-memory)) - value;
                                 affinity += 1.0f - diff * diff;
                             }
                         }
@@ -646,7 +645,7 @@ namespace deep_learning_lib
 
                     top_raw_weight[idx] = result;
                     // Logistic activation function. Maybe more types of activation function later.
-                    float prob = 1.0f / (1.0f + fast_math::expf(-result));
+                    float prob = 1.0f / (1.0f + expf(-result));
                     top_expect[idx] = prob;
                     top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
                     longterm_memory_affinity[idx] = affinity;
@@ -688,7 +687,7 @@ namespace deep_learning_lib
 
                     top_raw_weight[idx] = result;
                     // Logistic activation function. Maybe more types of activation function later.
-                    float prob = 1.0f / (1.0f + fast_math::expf(-result));
+                    float prob = 1.0f / (1.0f + expf(-result));
                     top_expect[idx] = prob;
                     top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
                 }
@@ -790,7 +789,7 @@ namespace deep_learning_lib
                 }
 
                 // Logistic activation function. Maybe more types of activation function later.
-                float prob = 1.0f / (1.0f + fast_math::expf(-result));
+                float prob = 1.0f / (1.0f + expf(-result));
 
                 bottom_expect[idx] = prob;
                 bottom_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
@@ -834,7 +833,7 @@ namespace deep_learning_lib
                     }
                 }
 
-                output_value[idx] = 1.0f / (1.0f + fast_math::expf(-result));
+                output_value[idx] = 1.0f / (1.0f + expf(-result));
             });
         }
     }
@@ -979,7 +978,7 @@ namespace deep_learning_lib
                 int neuron_width_idx = idx[3];
 
                 float cur_memory_weight = longterm_memory_weights[idx];
-                float cur_memory_expect = 1.0f / (1.0f + fast_math::expf(-cur_memory_weight));
+                float cur_memory_expect = 1.0f / (1.0f + expf(-cur_memory_weight));
 
                 for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
                 {
@@ -1298,7 +1297,7 @@ namespace deep_learning_lib
                     float value = bottom_value(idx[0], idx[1] * block_height + height_idx, idx[2] * block_width + width_idx);
                     float expect = bottom_expect(idx[0], idx[1] * block_height + height_idx, idx[2] * block_width + width_idx);
 
-                    max_value = fast_math::fmaxf(max_value, value);
+                    max_value = fmaxf(max_value, value);
                     max_expect *= (1.0f - expect); // the probability that all nodes are 0
                 }
             }
@@ -1341,8 +1340,7 @@ namespace deep_learning_lib
             int width_idx = idx[2] / block_width;
 
 
-            bottom_expect[idx] = 1.0f - fast_math::powf(
-                1.0f - top_expect(idx[0], height_idx, width_idx), -1.0f * block_width * block_height);
+            bottom_expect[idx] = 1.0f - powf(1.0f - top_expect(idx[0], height_idx, width_idx), -1.0f * block_width * block_height);
             bottom_value[idx] = 0.0f;// clear the value
         });
 
