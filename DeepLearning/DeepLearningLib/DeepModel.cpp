@@ -21,6 +21,7 @@ namespace deep_learning_lib
         next_expect_view_(value_view_.extent),
         temp_value_view_(value_view_.extent),
         temp_expect_view_(value_view_.extent),
+        raw_weight_view_(value_view_.extent),
         active_prob_(1.0f),
         active_view_(value_view_.extent),
         // there is no empty array_view support in amp now, so we just set the extent to (1,1,1,1) when the shortterm_memory_num == 0
@@ -34,6 +35,7 @@ namespace deep_learning_lib
         fill(next_expect_view_, 0.0f);
         fill(temp_value_view_, 0.0f);
         fill(temp_expect_view_, 0.0f);
+        fill(raw_weight_view_, 0.0f);
         fill(active_view_, 1);
         fill(shortterm_memory_view_, 0.0f);
         for (int time = 0; time < shortterm_memory_num; time++)
@@ -50,6 +52,7 @@ namespace deep_learning_lib
         next_expect_view_(other.next_expect_view_),
         temp_value_view_(other.temp_value_view_),
         temp_expect_view_(other.temp_expect_view_),
+        raw_weight_view_(other.raw_weight_view_),
         active_prob_(other.active_prob_),
         active_view_(other.active_view_),
         shortterm_memory_view_(other.shortterm_memory_view_),
@@ -316,7 +319,7 @@ namespace deep_learning_lib
         const int top_height = top_layer.height();
         const int top_width = top_layer.width();
 
-        array_view<float, 3> top_expect = top_layer[top_slot].second;
+        array_view<float, 3> top_raw_weight = top_layer.raw_weight_view_;
         array_view<const float> output_bias = this->bias_view_;
         array_view<const float, 4> output_weights = this->weights_view_;
 
@@ -336,8 +339,8 @@ namespace deep_learning_lib
                 {
                     for (int width_idx = 0; width_idx < top_width; width_idx++)
                     {
-                        float current_top_expect = top_expect(depth_idx, height_idx, width_idx);
-                        float score = fast_math::logf(current_top_expect) - fast_math::logf(1.0f - current_top_expect)
+                        //float current_top_expect = top_expect(depth_idx, height_idx, width_idx);
+                        float score = top_raw_weight(depth_idx, height_idx, width_idx)//fast_math::logf(current_top_expect) - fast_math::logf(1.0f - current_top_expect)
                             + current_output_weights(depth_idx, height_idx, width_idx);
                         result += fast_math::logf((fast_math::expf(score) + 1.0f) * (1.0f - dropout_prob) + 2.0f * dropout_prob);
                     }
@@ -576,6 +579,7 @@ namespace deep_learning_lib
         const auto& top_data = top_layer[top_slot];
         array_view<float, 3> top_value = top_data.first;
         array_view<float, 3> top_expect = top_data.second;
+        array_view<float, 3> top_raw_weight = top_layer.raw_weight_view_;
         array_view<float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
 
         top_value.discard_data();
@@ -597,6 +601,7 @@ namespace deep_learning_lib
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
+                top_raw_weight[idx] = 0.0f;
                 if (top_depth_idx < longterm_memory_num)
                 {
                     longterm_memory_affinity[idx] = 0.0f;
@@ -639,6 +644,7 @@ namespace deep_learning_lib
                         }
                     }
 
+                    top_raw_weight[idx] = result;
                     // Logistic activation function. Maybe more types of activation function later.
                     float prob = 1.0f / (1.0f + fast_math::expf(-result));
                     top_expect[idx] = prob;
@@ -680,6 +686,7 @@ namespace deep_learning_lib
                         }
                     }
 
+                    top_raw_weight[idx] = result;
                     // Logistic activation function. Maybe more types of activation function later.
                     float prob = 1.0f / (1.0f + fast_math::expf(-result));
                     top_expect[idx] = prob;
@@ -952,7 +959,7 @@ namespace deep_learning_lib
 
             neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
-
+        
         // update longterm memory weights, the key idea is weighted k-mean clustering
         if (longterm_memory_num > 0)
         {
@@ -1507,6 +1514,9 @@ namespace deep_learning_lib
         bottom_data_layer.SetValue(data);
         top_data_layer.Activate(1.0f - dropout_prob);
 
+        vector<int> active(top_data_layer.active_view_.extent.size());
+        copy(top_data_layer.active_view_, active.begin());
+
         if (label == -1)
         {
             // purely generative training without label
@@ -1529,6 +1539,11 @@ namespace deep_learning_lib
 
             conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent,
                 top_data_layer, DataSlot::kCurrent, &output_layer, DataSlot::kCurrent);
+
+            std::vector<float> top_expect(top_data_layer.expect_view_.extent.size());
+            copy(top_data_layer.expect_view_, top_expect.begin());
+
+            
             if (conv_layer.longterm_memory_num() > 0)
             {
                 conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
@@ -1548,8 +1563,15 @@ namespace deep_learning_lib
             {
                 conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
                     bottom_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
+                
+                std::vector<float> bottom_expect(bottom_data_layer.next_expect_view_.extent.size());
+                copy(bottom_data_layer.next_expect_view_, bottom_expect.begin());
+
                 conv_layer.PassUp(bottom_data_layer, DataSlot::kNext,
                     top_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
+
+                std::vector<float> next_top_expect(top_data_layer.next_expect_view_.extent.size());
+                copy(top_data_layer.next_expect_view_, next_top_expect.begin());
             }
 
             conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
@@ -1569,7 +1591,7 @@ namespace deep_learning_lib
             && layer_stack_[layer_idx + 2].first == LayerType::kDataLayer);
 
         auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx].second];
-        auto& conv_layer = convolve_layers_[layer_stack_[layer_idx + 1].second];
+        const auto& conv_layer = convolve_layers_[layer_stack_[layer_idx + 1].second];
         auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 2].second];
 
         auto& output_layer = output_layers_.at(layer_stack_[layer_idx + 2].second);

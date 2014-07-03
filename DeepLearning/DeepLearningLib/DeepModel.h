@@ -47,6 +47,9 @@ namespace deep_learning_lib
         concurrency::array_view<float, 3> temp_value_view_;
         concurrency::array_view<float, 3> temp_expect_view_;
 
+        // for evaluation, store the bottom up sum of neuron weights
+        concurrency::array_view<float, 3> raw_weight_view_;
+
         // for dropout
         concurrency::array_view<int, 3> active_view_;
 
