@@ -966,7 +966,7 @@ namespace deep_learning_lib
         // update longterm memory weights, the key idea is weighted k-mean clustering
         if (longterm_memory_num > 0)
         {
-            const float max_affinity = static_cast<float>(this->neuron_height() * this->neuron_width());
+            const float max_affinity = static_cast<float>(bottom_depth * this->neuron_height() * this->neuron_width());
 
             array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
             array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
@@ -1516,9 +1516,6 @@ namespace deep_learning_lib
         bottom_data_layer.SetValue(data);
         top_data_layer.Activate(1.0f - dropout_prob);
 
-        vector<int> active(top_data_layer.active_view_.extent.size());
-        copy(top_data_layer.active_view_, active.begin());
-
         if (label == -1)
         {
             // purely generative training without label
@@ -1541,10 +1538,6 @@ namespace deep_learning_lib
 
             conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent,
                 top_data_layer, DataSlot::kCurrent, &output_layer, DataSlot::kCurrent);
-
-            std::vector<float> top_expect(top_data_layer.expect_view_.extent.size());
-            copy(top_data_layer.expect_view_, top_expect.begin());
-
             
             if (conv_layer.longterm_memory_num() > 0)
             {
@@ -1565,15 +1558,9 @@ namespace deep_learning_lib
             {
                 conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
                     bottom_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
-                
-                std::vector<float> bottom_expect(bottom_data_layer.next_expect_view_.extent.size());
-                copy(bottom_data_layer.next_expect_view_, bottom_expect.begin());
 
                 conv_layer.PassUp(bottom_data_layer, DataSlot::kNext,
                     top_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
-
-                std::vector<float> next_top_expect(top_data_layer.next_expect_view_.extent.size());
-                copy(top_data_layer.next_expect_view_, next_top_expect.begin());
             }
 
             conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
