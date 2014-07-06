@@ -37,7 +37,7 @@ void TestUSPS()
 {
     using namespace cpplinq;
 
-    ifstream ifs(".\\Data Files\\usps_all.txt");
+    ifstream ifs("Data Files\\usps_all.txt");
 
     string line;
     getline(ifs, line);
@@ -126,7 +126,7 @@ void TestRBM()
 {
     using namespace cpplinq;
 
-    ifstream ifs(".\\Data Files\\usps_all.txt");
+    ifstream ifs("Data Files\\usps_all.txt");
 
     string line;
     getline(ifs, line);
