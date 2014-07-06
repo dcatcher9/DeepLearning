@@ -258,6 +258,7 @@ namespace deep_learning_lib
     OutputLayer::OutputLayer(int output_num, int input_depth, int input_height, int input_width)
         : outputs_view_(output_num),
         next_outputs_view_(output_num),
+        temp_outputs_view_(output_num),
         bias_(output_num),
         bias_view_(output_num, bias_),
         weights_(output_num * input_depth * input_height * input_width),
@@ -265,11 +266,13 @@ namespace deep_learning_lib
     {
         fill(outputs_view_, 0.0f);
         fill(next_outputs_view_, 0.0f);
+        fill(temp_outputs_view_, 0.0f);
     }
 
     OutputLayer::OutputLayer(OutputLayer&& other)
         : outputs_view_(other.outputs_view_),
         next_outputs_view_(other.next_outputs_view_),
+        temp_outputs_view_(other.temp_outputs_view_),
         bias_(move(other.bias_)),
         bias_view_(other.bias_view_),
         weights_(move(other.weights_)),
@@ -301,7 +304,7 @@ namespace deep_learning_lib
         const ConvolveLayer& conv_layer, const float dropout_prob)
     {
         assert(bottom_slot != DataSlot::kTemp);// we will use DataSlot::kTemp in this function.
-        assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
+        assert(top_layer.depth() == conv_layer.longterm_memory_num() + conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
         assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
         assert(top_layer.height() == bottom_layer.height() - conv_layer.neuron_height() + 1 && top_layer.height() == this->input_height());
 
@@ -583,6 +586,7 @@ namespace deep_learning_lib
 
         top_value.discard_data();
         top_expect.discard_data();
+        top_raw_weight.discard_data();
         longterm_memory_affinity.discard_data();
 
         auto& rand_collection = top_layer.rand_collection_;
@@ -698,7 +702,7 @@ namespace deep_learning_lib
     void ConvolveLayer::PassDown(const DataLayer& top_layer, DataSlot top_slot,
         DataLayer& bottom_layer, DataSlot bottom_slot, OutputLayer* output_layer, DataSlot output_slot) const
     {
-        assert(top_layer.depth() == this->neuron_num());
+        assert(top_layer.depth() == this->longterm_memory_num() + this->neuron_num());
         assert(top_layer.width() == bottom_layer.width() - this->neuron_width() + 1);
         assert(top_layer.height() == bottom_layer.height() - this->neuron_height() + 1);
 

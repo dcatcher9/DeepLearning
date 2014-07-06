@@ -128,6 +128,7 @@ namespace deep_learning_lib
     public:
         concurrency::array_view<float> outputs_view_;
         concurrency::array_view<float> next_outputs_view_;
+        concurrency::array_view<float> temp_outputs_view_;
 
         concurrency::array_view<float> bias_view_;
         concurrency::array_view<float, 4> weights_view_;
@@ -167,7 +168,7 @@ namespace deep_learning_lib
             case DataSlot::kNext:
                 return next_outputs_view_;
             case DataSlot::kTemp:
-                throw("OutputLayer does not accept kTemp data slot yet.");
+                return temp_outputs_view_;
             default:
                 throw("Invalid data slot type for output layer.");
             }
