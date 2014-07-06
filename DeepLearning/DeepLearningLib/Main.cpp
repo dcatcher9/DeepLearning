@@ -193,7 +193,7 @@ void TestRBM()
     const float dropout_prob = 0.5f;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    for (int i = 0; i < 5000; i++)
+    for (int i = 0; i < 500; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
