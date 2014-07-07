@@ -503,6 +503,7 @@ namespace deep_learning_lib
         // these three views below are resized to fit bottom layer on the fly
         // they are used like temp variables
         longterm_memory_affinity_prior_view_(1, 1),
+        longterm_memory_max_affinity_index_view_(1, 1),
         longterm_memory_affinity_view_(1, 1, 1),
         neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
@@ -524,6 +525,7 @@ namespace deep_learning_lib
         neuron_weights_(move(other.neuron_weights_)),
         longterm_memory_weights_(move(other.longterm_memory_weights_)),
         longterm_memory_affinity_prior_view_(other.longterm_memory_affinity_prior_view_),
+        longterm_memory_max_affinity_index_view_(other.longterm_memory_max_affinity_index_view_),
         longterm_memory_affinity_view_(other.longterm_memory_affinity_view_),
         neuron_weights_view_(other.neuron_weights_view_),
         longterm_memory_weights_view_(other.longterm_memory_weights_view_),
@@ -697,6 +699,35 @@ namespace deep_learning_lib
                 }
             }
         });
+
+        if (longterm_memory_num > 0)
+        {
+            // write only
+            array_view<int, 2> longterm_memory_max_affinity_index = this->longterm_memory_max_affinity_index_view_;
+            longterm_memory_max_affinity_index.discard_data();
+
+            parallel_for_each(longterm_memory_max_affinity_index.extent,
+                [=](index<2> idx) restrict(amp)
+            {
+                int top_height_idx = idx[0];
+                int top_width_idx = idx[1];
+
+                int max_index = 0;
+                float max_affinity = longterm_memory_affinity(0, top_height_idx, top_width_idx);
+
+                for (int top_depth_idx = 1; top_depth_idx < longterm_memory_num; top_depth_idx++)
+                {
+                    float affinity = longterm_memory_affinity(top_depth_idx, top_height_idx, top_width_idx);
+                    if (affinity > max_affinity)
+                    {
+                        max_affinity = affinity;
+                        max_index = top_depth_idx;
+                    }
+                }
+
+                longterm_memory_max_affinity_index[idx] = max_index;
+            });
+        }
     }
 
     void ConvolveLayer::PassDown(const DataLayer& top_layer, DataSlot top_slot,
@@ -969,6 +1000,7 @@ namespace deep_learning_lib
             const float max_affinity = static_cast<float>(bottom_depth * this->neuron_height() * this->neuron_width());
 
             array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
+            array_view<const int, 2> longterm_memory_max_affinity_index = this->longterm_memory_max_affinity_index_view_;
             array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
 
             // non-tiled version
@@ -984,10 +1016,18 @@ namespace deep_learning_lib
                 float cur_memory_weight = longterm_memory_weights[idx];
                 float cur_memory_expect = 1.0f / (1.0f + expf(-cur_memory_weight));
 
+                int update_count = 0;
+
                 for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
                 {
                     for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
                     {
+                        // only update the maximum activated memory at this position
+                        if (longterm_memory_idx != longterm_memory_max_affinity_index(top_height_idx, top_width_idx))
+                        {
+                            continue;
+                        }
+
                         float memory_affinity = longterm_memory_affinity(longterm_memory_idx, top_height_idx, top_width_idx);
                         float model_affinity = longterm_memory_affinity_prior(top_height_idx, top_width_idx);
                         // the weight ranges from 0 to 1, enforcing richer get richer
@@ -995,10 +1035,15 @@ namespace deep_learning_lib
                         float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
                         float derivative = -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect);
                         delta += derivative * weight;
+
+                        update_count++;
                     }
                 }
 
-                longterm_memory_weights[idx] += delta / (top_height * top_width) * learning_rate;
+                if (update_count > 0)
+                {
+                    longterm_memory_weights[idx] += delta / update_count * learning_rate;
+                }
             });
         }
 
@@ -1092,6 +1137,7 @@ namespace deep_learning_lib
         }
 
         longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
+        longterm_memory_max_affinity_index_view_ = array_view<int, 2>(top_layer.height(), top_layer.width());
         longterm_memory_affinity_view_ = array_view<float, 3>(this->longterm_memory_num(), top_layer.height(), top_layer.width());
 
         return true;

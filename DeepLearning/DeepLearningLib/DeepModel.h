@@ -201,6 +201,9 @@ namespace deep_learning_lib
         // longterm memory below this threshold is suppressed, so it serves as a sparse prior
         concurrency::array_view<float, 2> longterm_memory_affinity_prior_view_;
 
+        // record the index of longterm memory with max affinity at this position on top layer
+        Concurrency::array_view<int, 2> longterm_memory_max_affinity_index_view_;
+
         // longterm memory activation info when passing up
         // it's not stored in data layer because long term memory is transparent to data layer
         // [longterm_memory_idx, height_idx, width_idx]
