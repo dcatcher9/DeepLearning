@@ -505,6 +505,7 @@ namespace deep_learning_lib
         longterm_memory_affinity_prior_view_(1, 1),
         longterm_memory_max_affinity_index_view_(1, 1),
         longterm_memory_affinity_view_(1, 1, 1),
+        longterm_memory_gain_view_(1),
         neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         // when longterm_memory_num == 0, we just use the neuron weights
         longterm_memory_weights_view_(
@@ -527,6 +528,7 @@ namespace deep_learning_lib
         longterm_memory_affinity_prior_view_(other.longterm_memory_affinity_prior_view_),
         longterm_memory_max_affinity_index_view_(other.longterm_memory_max_affinity_index_view_),
         longterm_memory_affinity_view_(other.longterm_memory_affinity_view_),
+        longterm_memory_gain_view_(other.longterm_memory_gain_view_),
         neuron_weights_view_(other.neuron_weights_view_),
         longterm_memory_weights_view_(other.longterm_memory_weights_view_),
         vbias_(move(other.vbias_)),
@@ -890,6 +892,8 @@ namespace deep_learning_lib
         // We could also use likelihood, but it has no limit on the penalty on mismatched node.
         // does not consider shortterm memory
         array_view<float, 2> affinity_prior_view = this->longterm_memory_affinity_prior_view_;// write only
+        affinity_prior_view.discard_data();
+
         parallel_for_each(affinity_prior_view.extent,
             [=](index<2> idx) restrict(amp)
         {
@@ -997,13 +1001,15 @@ namespace deep_learning_lib
         // update longterm memory weights, the key idea is weighted k-mean clustering
         if (longterm_memory_num > 0)
         {
-            const float max_affinity = static_cast<float>(bottom_depth * this->neuron_height() * this->neuron_width());
+            // the affinity of input data to itself as weight
+            const float self_affinity = static_cast<float>(bottom_depth * this->neuron_height() * this->neuron_width() * (1.0 - pow(1 + exp(1), -2)));
 
             array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
             array_view<const int, 2> longterm_memory_max_affinity_index = this->longterm_memory_max_affinity_index_view_;
             array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
 
             // non-tiled version
+            // enhanced existing longterm memories
             parallel_for_each(longterm_memory_weights.extent, [=](index<4> idx) restrict(amp)
             {
                 float delta = 0.0f;
@@ -1030,13 +1036,18 @@ namespace deep_learning_lib
 
                         float memory_affinity = longterm_memory_affinity(longterm_memory_idx, top_height_idx, top_width_idx);
                         float model_affinity = longterm_memory_affinity_prior(top_height_idx, top_width_idx);
-                        // the weight ranges from 0 to 1, enforcing richer get richer
-                        float weight = memory_affinity / max_affinity * (max_affinity - model_affinity) / max_affinity;
-                        float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
-                        float derivative = -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect);
-                        delta += derivative * weight;
+                        // enhance these activated longterm memories
+                        if (memory_affinity >= model_affinity)
+                        {
+                            // the weight ranges from 0 to 1, enforcing richer get richer
+                            //float weight = memory_affinity / max_affinity * (max_affinity - model_affinity) / max_affinity;
+                            float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+                            float derivative = -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect);
+                            //delta += derivative * weight;
+                            delta += derivative;
 
-                        update_count++;
+                            update_count++;
+                        }
                     }
                 }
 
@@ -1045,6 +1056,8 @@ namespace deep_learning_lib
                     longterm_memory_weights[idx] += delta / update_count * learning_rate;
                 }
             });
+
+            // expire old memories if neccessary
         }
 
         // update vbias, only for generative training and only for value not shortterm memory
@@ -1139,6 +1152,9 @@ namespace deep_learning_lib
         longterm_memory_affinity_prior_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
         longterm_memory_max_affinity_index_view_ = array_view<int, 2>(top_layer.height(), top_layer.width());
         longterm_memory_affinity_view_ = array_view<float, 3>(this->longterm_memory_num(), top_layer.height(), top_layer.width());
+        longterm_memory_gain_view_ = array_view<float>(this->longterm_memory_num());
+        
+        fill(longterm_memory_gain_view_, 0.0f);
 
         return true;
     }

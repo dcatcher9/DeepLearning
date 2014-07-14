@@ -209,6 +209,14 @@ namespace deep_learning_lib
         // [longterm_memory_idx, height_idx, width_idx]
         concurrency::array_view<float, 3> longterm_memory_affinity_view_;
 
+        // the cumulative gain for each longterm memory.
+        // the min of this will be replaced by newly encountered memory
+        concurrency::array_view<float> longterm_memory_gain_view_;
+        // if we cannot forget, we cannot learn.
+        // exponential decay used in cumulative longterm memory gain.
+        // maybe this should be adaptive instead of constant.
+        const float longterm_memory_decay = 0.99f;
+
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
