@@ -2,6 +2,7 @@
 
 #include <array>
 #include <tuple>
+#include <limits>
 
 #include <amp.h>
 
@@ -40,6 +41,12 @@ namespace deep_learning_lib
         {
             arr[idx] = initValue;
         });
+    }
+
+    template<typename T, int Rank>
+    inline std::pair<concurrency::index<Rank>, T> min(concurrency::array_view<T, Rank>& arr)
+    {
+        T minValue = std::numeric_limits<T>::lowest();
     }
 
     // until c++14, we cannot use initializer_list.size to remove the dependency on size template parameter

@@ -215,7 +215,7 @@ namespace deep_learning_lib
         // if we cannot forget, we cannot learn.
         // exponential decay used in cumulative longterm memory gain.
         // maybe this should be adaptive instead of constant.
-        const float longterm_memory_decay = 0.99f;
+        const float kLongtermMemoryDecay = 0.99f;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
@@ -279,8 +279,8 @@ namespace deep_learning_lib
             DataLayer& bottom_layer, DataSlot bottom_slot,
             OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
 
-        // Not all long-term memory activations are helpful, let's filter these harmful memories.
-        void SuppressMemory(DataLayer& top_layer, DataSlot top_slot,
+        // Activate long-term memory nodes in top layer.
+        void ActivateMemory(DataLayer& top_layer, DataSlot top_slot,
             const DataLayer& bottom_layer, DataSlot bottom_data_slot, DataSlot bottom_model_slot) const;
 
         // generative or discriminative training
