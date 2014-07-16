@@ -76,7 +76,7 @@ namespace deep_learning_lib
             {
                 int old_min_index = min_index_view(0);
                 int new_min_index;
-                // flattern the index, take the smallest upon a draw
+                // flatten the index, take the smallest upon a draw
                 int current_index = idx[0];
                 for (int i = 1; i < Rank; ++i)
                 {
