@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <random>
 #include <amp_math.h>
+#include <iostream>
 
 #include "AmpUtility.h"
 
@@ -113,18 +114,18 @@ namespace deep_learning_lib
         shortterm_memory_index_view_(0) = last_memory_index;
     }
 
-    float DataLayer::ReconstructionError() const
+    float DataLayer::ReconstructionError(DataSlot slot) const
     {
         array_view<float> result(1);
 
         array_view<const float, 3> value_view = this->value_view_;
-        array_view<const float, 3> next_value_view = this->next_value_view_;
+        array_view<const float, 3> recon_expect_view = (*this)[slot].second;
 
         // TODO: compare with reduce method for performance
         parallel_for_each(value_view.extent,
             [=](index<3> idx) restrict(amp)
         {
-            float diff = value_view[idx] - next_value_view[idx];
+            float diff = value_view[idx] - recon_expect_view[idx];
             atomic_fetch_add(&result(0), diff * diff);
         });
 
@@ -514,8 +515,9 @@ namespace deep_learning_lib
         // no vbias for short-term memory because they are not generative
         vbias_(longterm_memory_depth),
         vbias_view_(longterm_memory_depth, vbias_),
-        hbias_(longterm_memory_num + neuron_num),
-        hbias_view_(longterm_memory_num + neuron_num, hbias_)
+        // no hbias for long-term memory because they follow different training algorithm other than CD
+        hbias_(neuron_num),
+        hbias_view_(neuron_num, hbias_)
     {
         assert(longterm_memory_depth <= neuron_depth && neuron_depth % longterm_memory_depth == 0);
     }
@@ -608,7 +610,7 @@ namespace deep_learning_lib
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
-                top_raw_weight[idx] = 0.0f;
+                top_raw_weight[idx] = -1000.0f;
                 if (top_depth_idx < longterm_memory_num)
                 {
                     longterm_memory_affinity[idx] = 0.0f;
@@ -616,7 +618,7 @@ namespace deep_learning_lib
             }
             else
             {
-                float result = hbias[top_depth_idx];
+                float result = 0.0f;
                 float affinity = 0.0f;
 
                 if (output_layer_exist)
@@ -659,6 +661,7 @@ namespace deep_learning_lib
                 }
                 else
                 {
+                    result += hbias[top_depth_idx - longterm_memory_num];
                     // neuron weight logic
                     array_view<const float, 3> current_neuron = neuron_weights[top_depth_idx - longterm_memory_num];// projection
 
@@ -918,13 +921,12 @@ namespace deep_learning_lib
         });
 
         // read only
-        array_view<const float, 3> top_raw_weight = top_layer.raw_weight_view_;
         array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
 
         const auto& top_data = top_layer[top_slot];
         array_view<float, 3> longterm_memory_value = top_data.first.section(longterm_memory_affinity.extent);
         array_view<float, 3> longterm_memory_expect = top_data.second.section(longterm_memory_affinity.extent);
-
+        array_view<float, 3> top_raw_weight = top_layer.raw_weight_view_;
 
         auto& rand_collection = top_layer.rand_collection_;
 
@@ -939,7 +941,10 @@ namespace deep_learning_lib
                 float prob = 1.0f / (1.0f + expf(-top_raw_weight[idx]));
                 longterm_memory_expect[idx] = prob;
                 longterm_memory_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;;
-
+            }
+            else
+            {
+                top_raw_weight[idx] = -1000.0f;
             }
         });
     }
@@ -1129,8 +1134,8 @@ namespace deep_learning_lib
             {
                 for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
                 {
-                    float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
-                    float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
+                    float cur_top_expect = top_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
+                    float cur_top_next_expect = top_next_expect(neuron_idx + longterm_memory_num, top_height_idx, top_width_idx);
 
                     delta += cur_top_expect - cur_top_next_expect;
                 }
@@ -1157,8 +1162,16 @@ namespace deep_learning_lib
                 int top_height_idx = idx[2];
                 int top_width_idx = idx[3];
 
-                float delta = output_value(output_idx) * top_expect(top_depth_idx, top_height_idx, top_width_idx) -
-                    output_next_value(output_idx) * top_next_expect(top_depth_idx, top_height_idx, top_width_idx);
+                float delta = 0;
+                if (top_depth_idx < longterm_memory_num)
+                {
+                    delta = (output_value(output_idx) - output_next_value(output_idx)) * top_expect(top_depth_idx, top_height_idx, top_width_idx);
+                }
+                else
+                {
+                    delta = output_value(output_idx) * top_expect(top_depth_idx, top_height_idx, top_width_idx) -
+                        output_next_value(output_idx) * top_next_expect(top_depth_idx, top_height_idx, top_width_idx);
+                }
 
                 output_weights[idx] += delta * learning_rate;
             });
@@ -1257,7 +1270,7 @@ namespace deep_learning_lib
 
             for (int i = 0; i < hbias_.size(); i++)
             {
-                image.set_region(0, (2 + i) * (block_size + 1), block_size, block_size,
+                image.set_region(0, (2 + longterm_memory_num() + i) * (block_size + 1), block_size, block_size,
                     hbias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
                     static_cast<unsigned char>(abs(hbias_[i]) / max_abs_hbias * 255.0));
             }
@@ -1300,7 +1313,7 @@ namespace deep_learning_lib
 
             for (int i = 0; i < hbias_.size(); i++)
             {
-                image.set_region(0, (2 + neuron_height() / 2 + (neuron_height() + 1) * i) * (block_size + 1), block_size, block_size,
+                image.set_region(0, (2 + neuron_height() / 2 + (neuron_height() + 1) * (longterm_memory_num() + i)) * (block_size + 1), block_size, block_size,
                     hbias_[i] >= 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
                     static_cast<unsigned char>(abs(hbias_[i]) / max_abs_hbias * 255.0));
             }
@@ -1638,9 +1651,16 @@ namespace deep_learning_lib
             {
                 conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
                     bottom_data_layer, DataSlot::kTemp, &output_layer, DataSlot::kTemp);
+
+                float orgin_err = bottom_data_layer.ReconstructionError(DataSlot::kTemp);
                 // TODO: support memory suppression based on both data and label.
                 // currently only data is considered.
                 conv_layer.ActivateMemory(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kCurrent, DataSlot::kTemp);
+
+                conv_layer.PassDown(top_data_layer, DataSlot::kCurrent,
+                    bottom_data_layer, DataSlot::kTemp, &output_layer, DataSlot::kTemp);
+                float new_err = bottom_data_layer.ReconstructionError(DataSlot::kTemp);
+                cout << "orgin err = " << orgin_err << "\tnew err = " << new_err << "\tgain = " << orgin_err - new_err << endl;
             }
 
             if (discriminative_training)
@@ -1664,7 +1684,7 @@ namespace deep_learning_lib
         // update shortterm memory
         bottom_data_layer.Memorize();
 
-        return bottom_data_layer.ReconstructionError();
+        return bottom_data_layer.ReconstructionError(DataSlot::kNext);
     }
 
     int DeepModel::PredictLabel(const vector<float>& data, const int layer_idx, const float dropout_prob)

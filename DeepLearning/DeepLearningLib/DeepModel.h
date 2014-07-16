@@ -109,7 +109,7 @@ namespace deep_learning_lib
         // store current value into shortterm memory.
         void Memorize();
 
-        float ReconstructionError() const;
+        float ReconstructionError(DataSlot slot) const;
 
         bitmap_image GenerateImage() const;
     };
