@@ -46,7 +46,7 @@ void TestUSPS()
     int row_count = stoi(headers[0]);
     int row_len = stoi(headers[1]);
 
-    const float train_fraction = 0.8f;
+    const float train_fraction = 0.99f;
 
     vector<const vector<float>> train_data;
     vector<const int> train_labels;
@@ -97,14 +97,14 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(20, 8, 8);
+    model.AddConvolveLayer(200, 16, 16, 10);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
     const float dropout_prob = 0.5f;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    for (int i = 0; i < 5000; i++)
+    for (int i = 0; i < 500; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
@@ -135,7 +135,7 @@ void TestRBM()
     int row_count = stoi(headers[0]);
     int row_len = stoi(headers[1]);
 
-    const float train_fraction = 0.9f;
+    const float train_fraction = 0.99f;
 
     vector<const vector<float>> train_data;
     vector<const int> train_labels;
@@ -212,6 +212,6 @@ void TestRBM()
 
 void main()
 {
-    //TestUSPS();
-    TestRBM();
+    TestUSPS();
+    //TestRBM();
 }

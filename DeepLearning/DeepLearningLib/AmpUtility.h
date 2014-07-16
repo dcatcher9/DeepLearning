@@ -4,6 +4,7 @@
 #include <tuple>
 #include <limits>
 #include <type_traits>
+#include <vector>
 
 #include <amp.h>
 
@@ -67,6 +68,7 @@ namespace deep_learning_lib
         });
 
         concurrency::array_view<int> min_index_view(1);// used to communicate the min index back
+        min_index_view(0) = arr.extent.size();
         concurrency::parallel_for_each(arr.extent, [=](concurrency::index<Rank> idx) restrict(amp)
         {
             T current_value = arr[idx];

@@ -924,7 +924,7 @@ namespace deep_learning_lib
         const auto& top_data = top_layer[top_slot];
         array_view<float, 3> longterm_memory_value = top_data.first.section(longterm_memory_affinity.extent);
         array_view<float, 3> longterm_memory_expect = top_data.second.section(longterm_memory_affinity.extent);
-        
+
 
         auto& rand_collection = top_layer.rand_collection_;
 
@@ -939,7 +939,7 @@ namespace deep_learning_lib
                 float prob = 1.0f / (1.0f + expf(-top_raw_weight[idx]));
                 longterm_memory_expect[idx] = prob;
                 longterm_memory_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;;
-                
+
             }
         });
     }
@@ -1046,8 +1046,8 @@ namespace deep_learning_lib
                             float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
                             delta += -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect);
 
-                            atomic_fetch_add(&longterm_memory_gain(longterm_memory_idx), memory_affinity - model_affinity);
-                            
+                            atomic_fetch_add(&longterm_memory_gain(longterm_memory_idx), (memory_affinity - model_affinity) / bottom_depth);
+
                             update_count++;
                         }
                     }
@@ -1080,12 +1080,12 @@ namespace deep_learning_lib
                 const int min_affinity_width_idx = min_affinity.first[1];
                 array_view<float, 3> min_gain_weights = longterm_memory_weights[min_gain.first[0]];
                 min_gain_weights.discard_data();
-                
+
                 parallel_for_each(min_gain_weights.extent, [=](index<3> idx) restrict(amp)
                 {
-                    int neuron_depth_idx = idx[1];
-                    int neuron_height_idx = idx[2];
-                    int neuron_width_idx = idx[3];
+                    int neuron_depth_idx = idx[0];
+                    int neuron_height_idx = idx[1];
+                    int neuron_width_idx = idx[2];
 
                     float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + min_affinity_height_idx, neuron_width_idx + min_affinity_width_idx);
                     min_gain_weights[idx] = cur_bottom_value * 2 - 1.0f;// map value 1 to weight 1, value 0 to weight -1
