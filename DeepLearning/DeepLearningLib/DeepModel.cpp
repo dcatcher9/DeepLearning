@@ -1229,6 +1229,11 @@ namespace deep_learning_lib
         vbias_view_.synchronize();
         hbias_view_.synchronize();
 
+        for (int i = 0; i < longterm_memory_gain_view_.extent.size(); i++)
+        {
+            cout << longterm_memory_gain_view_(i) << endl;
+        }
+
         bitmap_image image;
 
         const int block_size = 2;
@@ -1679,8 +1684,6 @@ namespace deep_learning_lib
             conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
         }
 
-        conv_layer.GenerateImage().save_image("model_dump\\layer_conv.bmp");
-
         // update shortterm memory
         bottom_data_layer.Memorize();
 
@@ -1709,6 +1712,9 @@ namespace deep_learning_lib
     float DeepModel::Evaluate(const vector<const vector<float>>& dataset, const vector<const int>& labels,
         int layer_idx, const float dropout_prob)
     {
+
+        //convolve_layers_.front().GenerateImage().save_image("model_dump\\layer_conv.bmp");
+
         assert(dataset.size() == labels.size());
 
         float correct_count = 0.0f;

@@ -215,7 +215,7 @@ namespace deep_learning_lib
         // if we cannot forget, we cannot learn.
         // exponential decay used in cumulative longterm memory gain.
         // maybe this should be adaptive instead of constant.
-        const float kLongtermMemoryDecay = 0.99f;
+        const float kLongtermMemoryDecay = 0.995f;
 
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
