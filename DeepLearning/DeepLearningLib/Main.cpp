@@ -97,7 +97,7 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(1, 16, 16, 200);
+    model.AddConvolveLayer(10, 16, 16, 20);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 

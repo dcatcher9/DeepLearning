@@ -922,6 +922,7 @@ namespace deep_learning_lib
 
         // read only
         array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
+        array_view<const int, 2> longterm_memory_max_affinity_index = this->longterm_memory_max_affinity_index_view_;
 
         const auto& top_data = top_layer[top_slot];
         array_view<float, 3> longterm_memory_value = top_data.first.section(longterm_memory_affinity.extent);
@@ -933,10 +934,12 @@ namespace deep_learning_lib
         parallel_for_each(longterm_memory_affinity.extent,
             [=](index<3> idx) restrict(amp)
         {
+            int cur_depth_idx = idx[0];
             int cur_height_idx = idx[1];
             int cur_width_idx = idx[2];
 
-            if (longterm_memory_affinity[idx] >= affinity_prior_view(cur_height_idx, cur_width_idx))
+            if (cur_depth_idx == longterm_memory_max_affinity_index(cur_height_idx, cur_width_idx) 
+                && longterm_memory_affinity[idx] >= affinity_prior_view(cur_height_idx, cur_width_idx))
             {
                 float prob = 1.0f / (1.0f + expf(-top_raw_weight[idx]));
                 longterm_memory_expect[idx] = prob;
@@ -1008,92 +1011,6 @@ namespace deep_learning_lib
 
             neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
         });
-
-        // update longterm memory weights, the key idea is weighted k-mean clustering
-        if (longterm_memory_num > 0)
-        {
-            const int longterm_memory_depth = this->longterm_memory_depth_;
-            const int neuron_height = this->neuron_height();
-            const int neuron_width = this->neuron_width();
-
-            array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
-            array_view<const int, 2> longterm_memory_max_affinity_index = this->longterm_memory_max_affinity_index_view_;
-            array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
-            array_view<float> longterm_memory_gain = this->longterm_memory_gain_view_;
-
-            // enhanced existing longterm memories, expire old memories if necessary
-            const float kLongtermMemoryDecay = this->kLongtermMemoryDecay;
-            parallel_for_each(longterm_memory_gain.extent, [=](index<1> idx) restrict(amp)
-            {
-                int longterm_memory_idx = idx[0];
-
-                auto cur_longterm_memory_weights = longterm_memory_weights[longterm_memory_idx];
-
-                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-                {
-                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-                    {
-                        // only update the maximum activated memory at this position
-                        if (longterm_memory_idx != longterm_memory_max_affinity_index(top_height_idx, top_width_idx))
-                        {
-                            continue;
-                        }
-
-                        float memory_affinity = longterm_memory_affinity(longterm_memory_idx, top_height_idx, top_width_idx);
-                        float model_affinity = longterm_memory_affinity_prior(top_height_idx, top_width_idx);
-
-                        // enhance these activated longterm memories
-                        if (memory_affinity >= model_affinity)
-                        {
-                            for (int depth_idx = 0; depth_idx < longterm_memory_depth; ++depth_idx)
-                            {
-                                for (int height_idx = 0; height_idx < neuron_height; ++height_idx)
-                                {
-                                    for (int width_idx = 0; width_idx < neuron_width; ++width_idx)
-                                    {
-                                        float& cur_memory_weight = cur_longterm_memory_weights(depth_idx, height_idx, width_idx);
-                                        float cur_memory_expect = 1.0f / (1.0f + expf(-cur_memory_weight));
-
-                                        float cur_bottom_value = bottom_value(depth_idx, height_idx + top_height_idx, width_idx + top_width_idx);
-                                        cur_memory_weight += -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect) * learning_rate;
-                                    }
-                                }
-                            }
-
-                            longterm_memory_gain[idx] += memory_affinity - model_affinity;
-                        }
-                    }
-                }
-
-                longterm_memory_gain[idx] *= kLongtermMemoryDecay;
-            });
-
-            const auto& min_gain = min(longterm_memory_gain);
-            const auto& min_affinity = min(longterm_memory_affinity_prior);
-
-            // the affinity of input data to itself as weight
-            const float self_affinity = static_cast<float>(bottom_depth * this->neuron_height() * this->neuron_width() * (1.0 - pow(1 + exp(1), -2)));
-
-            if (min_gain.second < self_affinity - min_affinity.second)
-            {
-                longterm_memory_gain[min_gain.first] = self_affinity - min_affinity.second;
-
-                const int min_affinity_height_idx = min_affinity.first[0];
-                const int min_affinity_width_idx = min_affinity.first[1];
-                array_view<float, 3> min_gain_weights = longterm_memory_weights[min_gain.first[0]];
-                min_gain_weights.discard_data();
-
-                parallel_for_each(min_gain_weights.extent, [=](index<3> idx) restrict(amp)
-                {
-                    int neuron_depth_idx = idx[0];
-                    int neuron_height_idx = idx[1];
-                    int neuron_width_idx = idx[2];
-
-                    float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + min_affinity_height_idx, neuron_width_idx + min_affinity_width_idx);
-                    min_gain_weights[idx] = cur_bottom_value * 2 - 1.0f;// map value 1 to weight 1, value 0 to weight -1
-                });
-            }
-        }
 
         // update vbias, only for generative training and only for value not shortterm memory
         if (!discriminative_training)
@@ -1179,6 +1096,100 @@ namespace deep_learning_lib
 
                 output_bias[idx] += delta * learning_rate;
             });
+        }
+
+        // update longterm memory weights, the key idea is weighted k-mean clustering
+        if (longterm_memory_num > 0)
+        {
+            const int longterm_memory_depth = this->longterm_memory_depth_;
+            const int neuron_height = this->neuron_height();
+            const int neuron_width = this->neuron_width();
+
+            array_view<const float, 2> longterm_memory_affinity_prior = this->longterm_memory_affinity_prior_view_;
+            array_view<const int, 2> longterm_memory_max_affinity_index = this->longterm_memory_max_affinity_index_view_;
+            array_view<const float, 3> longterm_memory_affinity = this->longterm_memory_affinity_view_;
+            array_view<float> longterm_memory_gain = this->longterm_memory_gain_view_;
+
+            // enhanced existing longterm memories, expire old memories if necessary
+            const float kLongtermMemoryDecay = this->kLongtermMemoryDecay;
+            parallel_for_each(longterm_memory_gain.extent, [=](index<1> idx) restrict(amp)
+            {
+                int longterm_memory_idx = idx[0];
+
+                auto cur_longterm_memory_weights = longterm_memory_weights[longterm_memory_idx];
+
+                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+                {
+                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                    {
+                        // only update the maximum activated memory at this position
+                        if (longterm_memory_idx != longterm_memory_max_affinity_index(top_height_idx, top_width_idx))
+                        {
+                            continue;
+                        }
+
+                        float memory_affinity = longterm_memory_affinity(longterm_memory_idx, top_height_idx, top_width_idx);
+                        float model_affinity = longterm_memory_affinity_prior(top_height_idx, top_width_idx);
+
+                        // enhance these activated longterm memories
+                        if (memory_affinity >= model_affinity)
+                        {
+                            for (int depth_idx = 0; depth_idx < longterm_memory_depth; ++depth_idx)
+                            {
+                                for (int height_idx = 0; height_idx < neuron_height; ++height_idx)
+                                {
+                                    for (int width_idx = 0; width_idx < neuron_width; ++width_idx)
+                                    {
+                                        float& cur_memory_weight = cur_longterm_memory_weights(depth_idx, height_idx, width_idx);
+                                        float cur_memory_expect = 1.0f / (1.0f + expf(-cur_memory_weight));
+
+                                        float cur_bottom_value = bottom_value(depth_idx, height_idx + top_height_idx, width_idx + top_width_idx);
+                                        cur_memory_weight += -2 * (cur_memory_expect - cur_bottom_value) * cur_memory_expect * (1 - cur_memory_expect) * learning_rate;
+                                    }
+                                }
+                            }
+
+                            longterm_memory_gain[idx] += memory_affinity - model_affinity;
+                        }
+                    }
+                }
+
+                longterm_memory_gain[idx] *= kLongtermMemoryDecay;
+            });
+
+            const auto& min_gain = min(longterm_memory_gain);
+            const auto& min_affinity = min(longterm_memory_affinity_prior);
+
+            // the affinity of input data to itself as weight
+            const float self_affinity = static_cast<float>(bottom_depth * this->neuron_height() * this->neuron_width() * (1.0 - pow(1 + exp(1), -2)));
+
+            if (min_gain.second < self_affinity - min_affinity.second)
+            {
+                longterm_memory_gain[min_gain.first] = self_affinity - min_affinity.second;
+
+                const int min_affinity_height_idx = min_affinity.first[0];
+                const int min_affinity_width_idx = min_affinity.first[1];
+                array_view<float, 3> min_gain_weights = longterm_memory_weights[min_gain.first[0]];
+                min_gain_weights.discard_data();
+
+                parallel_for_each(min_gain_weights.extent, [=](index<3> idx) restrict(amp)
+                {
+                    int neuron_depth_idx = idx[0];
+                    int neuron_height_idx = idx[1];
+                    int neuron_width_idx = idx[2];
+
+                    float cur_bottom_value = bottom_value(neuron_depth_idx, neuron_height_idx + min_affinity_height_idx, neuron_width_idx + min_affinity_width_idx);
+                    min_gain_weights[idx] = (cur_bottom_value * 2 - 1.0f);// map value 1 to weight 1, value 0 to weight -1
+                });
+
+                if (output_layer != nullptr)
+                {
+                    for (int i = 0; i < output_layer->output_num(); ++i)
+                    {
+                        output_layer->weights_view_[i](min_gain.first[0], min_affinity_height_idx, min_affinity_width_idx) = (output_layer->outputs_view_[i] * 2 - 1.0f);
+                    }
+                }
+            }
         }
     }
 
@@ -1713,7 +1724,7 @@ namespace deep_learning_lib
         int layer_idx, const float dropout_prob)
     {
 
-        //convolve_layers_.front().GenerateImage().save_image("model_dump\\layer_conv.bmp");
+        convolve_layers_.front().GenerateImage().save_image("model_dump\\layer_conv.bmp");
 
         assert(dataset.size() == labels.size());
 
