@@ -71,4 +71,9 @@ public:
         static_assert(_rank == 3, "rank must be 3");
         return m_rng_av(l0, l1, l2);
     }
+
+    concurrency::extent<_rank> extent() const restrict(amp, cpu)
+    {
+        return m_rng_av.extent;
+    }
 };

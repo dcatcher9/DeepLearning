@@ -35,7 +35,6 @@ namespace deep_learning_lib
     class DataLayer
     {
     private:
-        float active_prob_; // for dropout
         int shortterm_memory_num_;
 
     public:
@@ -46,12 +45,6 @@ namespace deep_learning_lib
         concurrency::array_view<float, 3> next_expect_view_;
         concurrency::array_view<float, 3> temp_value_view_;
         concurrency::array_view<float, 3> temp_expect_view_;
-
-        // for evaluation, store the bottom up sum of neuron weights
-        concurrency::array_view<float, 3> raw_weight_view_;
-
-        // for dropout
-        concurrency::array_view<int, 3> active_view_;
 
         // short term memory view
         concurrency::array_view<float, 4> shortterm_memory_view_;
@@ -103,8 +96,6 @@ namespace deep_learning_lib
                 throw("Invalid data slot type for data layer.");
             }
         }
-
-        void Activate(float active_prob = 1.0f);
 
         // store current value into shortterm memory.
         void Memorize();
@@ -194,62 +185,56 @@ namespace deep_learning_lib
     class ConvolveLayer
     {
     private:
+        // parameters we need to learn
         std::vector<float> neuron_weights_;
-        std::vector<float> longterm_memory_weights_;
-
-        // store how good is the reconstruction of model against true data at each positions
-        // longterm memory below this threshold is suppressed, so it serves as a sparse prior
-        concurrency::array_view<float, 2> longterm_memory_affinity_prior_view_;
-
-        // record the index of longterm memory with max affinity at this position on top layer
-        Concurrency::array_view<int, 2> longterm_memory_max_affinity_index_view_;
-
-        // longterm memory activation info when passing up
-        // it's not stored in data layer because long term memory is transparent to data layer
-        // [longterm_memory_idx, height_idx, width_idx]
-        concurrency::array_view<float, 3> longterm_memory_affinity_view_;
-
-        // the cumulative gain for each longterm memory.
-        // the min of this will be replaced by newly encountered memory
-        concurrency::array_view<float> longterm_memory_gain_view_;
-        // if we cannot forget, we cannot learn.
-        // exponential decay used in cumulative longterm memory gain.
-        // maybe this should be adaptive instead of constant.
-        const float kLongtermMemoryDecay = 0.995f;
-
+        std::vector<float> neuron_activation_probs_;
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
 
-        int longterm_memory_num_;
-        int longterm_memory_depth_;
+        // the likelihood of data against model at each position.
+        // neuron with neuron_likelihood below this threshold is suppressed, so it serves as a dynamic sparse prior, which depends on the input data.
+        // [top_height_idx, top_width_idx]
+        concurrency::array_view<float, 2> model_likelihood_view_;
 
+        // the likelihood of data against neuron at each position
+        // [neuron_idx, top_height_idx, top_width_idx]
+        concurrency::array_view<float, 3> neuron_likelihood_view_;
+
+        // the actual activation sampled according to activation prob at each position.
+        // 1 - activated; 0 - inactivated
+        // [neuron_idx, top_height_idx, top_width_idx]
+        concurrency::array_view<int, 3> neuron_activations_view_;
+
+        float dropout_prob_;
+        // whether dropout is activated at each position
+        // 1 - activate dropout; 0 - disable dropout
+        // [neuron_idx, top_height_idx, top_width_idx]
+        concurrency::array_view<int, 3> dropout_activations_view_;
+
+        // temporary storage of raw weights, for label prediction
+        // [neuron_idx, top_height_idx, top_width_idx]
+        concurrency::array_view<float, 3> top_raw_weights_view_;
+        
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<float, 4> neuron_weights_view_;
-        // longterm memory view [longterm_memory_idx, neuron_depth, neuron_height, neuron_width]
-        concurrency::array_view<float, 4> longterm_memory_weights_view_;
+
+        // activation probability for each neuron.
+        // activated neuron will serve as instinct memory; inactivated neuron will serve as longterm memory.
+        // neuron activation is differernt from data layer activation. Their dimension is just different.
+        // [neuron_idx]
+        concurrency::array_view<float> neuron_activation_probs_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float> vbias_view_;
         concurrency::array_view<float> hbias_view_;
 
     public:
-        ConvolveLayer(int longterm_memory_num, int longterm_memory_depth,
-            int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
-
-        inline int longterm_memory_num() const
-        {
-            return longterm_memory_num_;
-        }
-
-        inline int longterm_memory_depth() const
-        {
-            return longterm_memory_depth_;
-        }
 
         inline int neuron_num() const
         {
@@ -271,6 +256,10 @@ namespace deep_learning_lib
             return neuron_weights_view_.extent[3];
         }
 
+        void ActivateDropout(tinymt_collection<3>& rand_collection, float dropout_prob = 0.0f);
+
+        void ActivateRegularNeurons(tinymt_collection<3>& rand_collection);
+
         void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
             DataLayer& top_layer, DataSlot top_slot,
             const OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
@@ -279,15 +268,14 @@ namespace deep_learning_lib
             DataLayer& bottom_layer, DataSlot bottom_slot,
             OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
 
-        // Activate long-term memory nodes in top layer.
-        void ActivateMemory(DataLayer& top_layer, DataSlot top_slot,
+        void ActivateMemoryNeuron(DataLayer& top_layer, DataSlot top_slot,
             const DataLayer& bottom_layer, DataSlot bottom_data_slot, DataSlot bottom_model_slot) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
             OutputLayer* output_layer = nullptr, bool discriminative_training = false);
 
-        bool FitLongtermMemory(const DataLayer& top_layer);
+        bool FitTopLayer(const DataLayer& top_layer);
 
         void RandomizeParams(unsigned int seed);
 
