@@ -26,7 +26,6 @@ namespace deep_learning_lib
         // there is no empty array_view support in amp now, so we just set the extent to (1,1,1,1) when the shortterm_memory_num == 0
         shortterm_memory_view_(shortterm_memory_num == 0 ? make_extent(1, 1, 1, 1) : make_extent(shortterm_memory_num, depth, height, width)),
         shortterm_memory_index_view_(std::max(1, shortterm_memory_num)),
-        raw_weights_view_(value_view_.extent),
         rand_collection_(value_view_.extent, seed)
     {
         fill(value_view_, 0.0f);
@@ -52,7 +51,6 @@ namespace deep_learning_lib
         temp_expect_view_(other.temp_expect_view_),
         shortterm_memory_view_(other.shortterm_memory_view_),
         shortterm_memory_index_view_(other.shortterm_memory_index_view_),
-        raw_weights_view_(other.raw_weights_view_),
         rand_collection_(other.rand_collection_)
     {
     }
@@ -272,30 +270,24 @@ namespace deep_learning_lib
         weights_view_.refresh();
     }
 
-    int OutputLayer::PredictLabel(DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
-        const ConvolveLayer& conv_layer, const float dropout_prob)
+    int OutputLayer::PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
+        ConvolveLayer& conv_layer, const float dropout_prob)
     {
-        assert(bottom_slot != DataSlot::kTemp);// we will use DataSlot::kTemp in this function.
-        assert(top_layer.depth() == conv_layer.longterm_memory_num() + conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
+        assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
         assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
         assert(top_layer.height() == bottom_layer.height() - conv_layer.neuron_height() + 1 && top_layer.height() == this->input_height());
 
         // calculate base score, ignore top layer activation
         // pass up with full activation in top layers
-        top_layer.Activate();
+        conv_layer.ActivateDropout(top_layer.rand_collection_);
         conv_layer.PassUp(bottom_layer, bottom_slot, top_layer, top_slot);
-        if (conv_layer.longterm_memory_num() > 0)
-        {
-            conv_layer.PassDown(top_layer, top_slot, bottom_layer, DataSlot::kTemp);
-            conv_layer.ActivateMemory(top_layer, top_slot, bottom_layer, bottom_slot, DataSlot::kTemp);
-        }
 
         // read only
         const int top_depth = top_layer.depth();
         const int top_height = top_layer.height();
         const int top_width = top_layer.width();
 
-        array_view<float, 3> top_raw_weight = top_layer.raw_weight_view_;
+        array_view<float, 3> top_raw_weights = conv_layer.top_raw_weights_view_;
         array_view<const float> output_bias = this->bias_view_;
         array_view<const float, 4> output_weights = this->weights_view_;
 
@@ -469,8 +461,6 @@ namespace deep_learning_lib
         : neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
         neuron_activation_counts_(neuron_num),
         neuron_life_counts_(neuron_num),
-        model_likelihood_view_(1, 1),
-        neuron_likelihood_view_(1, 1, 1),
         neuron_activation_counts_view_(neuron_num, neuron_activation_counts_),
         neuron_life_counts_view_(neuron_num, neuron_life_counts_),
         neuron_activations_view_(1, 1, 1),
@@ -480,7 +470,8 @@ namespace deep_learning_lib
         hbias_(neuron_num),
         hbias_view_(neuron_num, hbias_),
         dropout_prob_(0.0f),
-        dropout_activations_view_(1, 1, 1)
+        dropout_activations_view_(1, 1, 1),
+        top_raw_weights_view_(1, 1, 1)
     {
     }
 
@@ -488,8 +479,6 @@ namespace deep_learning_lib
         : neuron_weights_(move(other.neuron_weights_)),
         neuron_activation_counts_(move(other.neuron_activation_counts_)),
         neuron_life_counts_(move(other.neuron_life_counts_)),
-        model_likelihood_view_(other.model_likelihood_view_),
-        neuron_likelihood_view_(other.neuron_likelihood_view_),
         neuron_activation_counts_view_(other.neuron_activation_counts_view_),
         neuron_life_counts_view_(other.neuron_life_counts_view_),
         neuron_activations_view_(other.neuron_activations_view_),
@@ -499,7 +488,8 @@ namespace deep_learning_lib
         hbias_(move(other.hbias_)),
         hbias_view_(other.hbias_view_),
         dropout_prob_(other.dropout_prob_),
-        dropout_activations_view_(other.dropout_activations_view_)
+        dropout_activations_view_(other.dropout_activations_view_),
+        top_raw_weights_view_(other.top_raw_weights_view_)
     {
     }
 
@@ -559,7 +549,6 @@ namespace deep_learning_lib
         }
 
         // readonly
-        const float min_float = numeric_limits<float>::lowest();
         const int neuron_depth = this->neuron_depth();
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
@@ -586,18 +575,15 @@ namespace deep_learning_lib
         const auto& top_data = top_layer[top_slot];
         array_view<float, 3> top_value = top_data.first;
         array_view<float, 3> top_expect = top_data.second;
-        array_view<float, 3> top_raw_weights = top_layer.raw_weights_view_;
-        array_view<float, 3> neuron_likelihood = this->neuron_likelihood_view_;
+        array_view<float, 3> top_raw_weights = this->top_raw_weights_view_;
         
         top_value.discard_data();
         top_expect.discard_data();
         top_raw_weights.discard_data();
-        neuron_likelihood.discard_data();
         
         auto& rand_collection = top_layer.rand_collection_;
 
         // non-tiled version
-        // top_value = longterm_memory + neuron 
         parallel_for_each(top_value.extent,
             [=](index<3> idx) restrict(amp)
         {
@@ -609,13 +595,11 @@ namespace deep_learning_lib
             {
                 top_expect[idx] = 0.0f;
                 top_value[idx] = 0.0f;
-                top_raw_weights[idx] = min_float;
-                neuron_likelihood[idx] = min_float;
+                top_raw_weights[idx] = 0.0f;
             }
             else
             {
                 float raw_weight = hbias[top_depth_idx];
-                float likelihood = 0.0f;
 
                 if (output_layer_exist)
                 {
@@ -636,7 +620,6 @@ namespace deep_learning_lib
                             float value = bottom_value(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx);
                             float weight = current_neuron(depth_idx, height_idx, width_idx);
                             raw_weight += value * weight;
-                            likelihood += -logf(1.0f + expf((1.0f - 2 * value) * weight));
                         }
                     }
                 }
@@ -660,19 +643,17 @@ namespace deep_learning_lib
                 }
 
                 top_raw_weights[idx] = raw_weight;
-                neuron_likelihood[idx] = likelihood;
 
-                // only activate the regular neuron
-                if (neuron_activation[idx] == 1)
+                if (neuron_activation[idx] == 0 && raw_weight <= 0)
+                {
+                    top_expect[idx] = 0.0f;
+                    top_value[idx] = 0.0f;
+                }
+                else
                 {
                     float prob = 1.0f / (1.0f + expf(-raw_weight));
                     top_expect[idx] = prob;
                     top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;
-                }
-                else
-                {
-                    top_expect[idx] = 0.0f;
-                    top_value[idx] = 0.0f;
                 }
             }
         });
@@ -700,10 +681,8 @@ namespace deep_learning_lib
         const auto& bottom_data = bottom_layer[bottom_slot];
         array_view<float, 3> bottom_value = bottom_data.first;
         array_view<float, 3> bottom_expect = bottom_data.second;
-        array_view<float, 3> bottom_raw_weights = bottom_layer.raw_weights_view_;
         bottom_value.discard_data();
         bottom_expect.discard_data();
-        bottom_raw_weights.discard_data();
 
         auto& rand_collection = bottom_layer.rand_collection_;
 
@@ -740,8 +719,6 @@ namespace deep_learning_lib
                     }
                 }
             }
-
-            bottom_raw_weights[idx] = raw_weight;
 
             // Logistic activation function. Maybe more types of activation function later.
             float prob = 1.0f / (1.0f + expf(-raw_weight));
@@ -792,77 +769,6 @@ namespace deep_learning_lib
         }
     }
 
-    void ConvolveLayer::ActivateMemoryNeuron(DataLayer& top_layer, DataSlot top_slot,
-        const DataLayer& bottom_layer, DataSlot bottom_data_slot, DataSlot bottom_model_slot) const
-    {
-        // readonly
-        const int bottom_depth = bottom_layer.depth();
-        const int neuron_height = this->neuron_height();
-        const int neuron_width = this->neuron_width();
-        array_view<const float, 3> bottom_data_value = bottom_layer[bottom_data_slot].first;
-        array_view<const float, 3> bottom_model_expect = bottom_layer[bottom_model_slot].second;
-
-        // calculate data and model similarity, based on logistic neural activation.
-        // there are many ways to measure similarity, we use likelihood to align with maximum likelihood training
-        // does not consider shortterm memory
-        array_view<float, 2> model_likelihood_view = this->model_likelihood_view_;// write only
-        model_likelihood_view.discard_data();
-
-        parallel_for_each(model_likelihood_view.extent,
-            [=](index<2> idx) restrict(amp)
-        {
-            int cur_height_idx = idx[0];
-            int cur_width_idx = idx[1];
-
-            float likelihood = 0.0f;
-            for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
-            {
-                for (int height_idx = 0; height_idx < neuron_height; height_idx++)
-                {
-                    for (int width_idx = 0; width_idx < neuron_width; width_idx++)
-                    {
-                        float value = bottom_data_value(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx);
-                        float model_expect = bottom_model_expect(depth_idx, height_idx + cur_height_idx, width_idx + cur_width_idx);
-                        likelihood += logf(value * model_expect + (1.0f - value) * (1.0f - model_expect));
-                    }
-                }
-            }
-
-            model_likelihood_view[idx] = likelihood;
-        });
-
-        // read only
-        array_view<const float, 3> neuron_likelihood_view = this->neuron_likelihood_view_;
-        array_view<const float, 3> top_raw_weights = top_layer.raw_weights_view_;
-        array_view<const int, 3> dropout_activation = this->dropout_activations_view_;
-        array_view<const int, 3> neuron_activation = this->neuron_activations_view_;
-
-        const auto& top_data = top_layer[top_slot];
-        array_view<float, 3> top_value = top_data.first;
-        array_view<float, 3> top_expect = top_data.second;
-
-        auto& rand_collection = top_layer.rand_collection_;
-
-        parallel_for_each(neuron_likelihood_view.extent,
-            [=](index<3> idx) restrict(amp)
-        {
-            int cur_depth_idx = idx[0];
-            int cur_height_idx = idx[1];
-            int cur_width_idx = idx[2];
-
-            // not dropped out but inactivated neuron
-            if (dropout_activation[idx] == 0 && neuron_activation[idx] == 0)
-            {
-                if (neuron_likelihood_view[idx] >= model_likelihood_view(cur_height_idx, cur_width_idx))
-                {
-                    float prob = 1.0f / (1.0f + expf(-top_raw_weights[idx]));
-                    top_expect[idx] = prob;
-                    top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0f : 0.0f;;
-                }
-            }
-        });
-    }
-
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
         OutputLayer* output_layer, bool discriminative_training)
     {
@@ -906,7 +812,6 @@ namespace deep_learning_lib
             {
                 for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
                 {
-                    // top = longterm memory + neuron
                     float cur_top_expect = top_expect(neuron_idx, top_height_idx, top_width_idx);
                     float cur_top_next_expect = top_next_expect(neuron_idx, top_height_idx, top_width_idx);
 
@@ -991,6 +896,10 @@ namespace deep_learning_lib
                         life_count = life_count * kNeuronDecay + 1;
                         activation_count = activation_count * kNeuronDecay;
 
+                        if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5f)
+                        {
+                            activation_count++;
+                        }
                     }
                 }
             }
@@ -1032,17 +941,15 @@ namespace deep_learning_lib
     bool ConvolveLayer::FitTopLayer(const DataLayer& top_layer)
     {
         assert(this->neuron_num() == top_layer.depth());
-        if (model_likelihood_view_.extent[0] == top_layer.height()
-            && model_likelihood_view_.extent[1] == top_layer.width())
+        if (neuron_activations_view_.extent[1] == top_layer.height()
+            && neuron_activations_view_.extent[2] == top_layer.width())
         {
             return false;
         }
 
-        model_likelihood_view_ = array_view<float, 2>(top_layer.height(), top_layer.width());
-        neuron_likelihood_view_ = array_view<float, 3>(top_layer.depth(), top_layer.height(), top_layer.width());
-        neuron_activations_view_ = array_view<int, 3>(neuron_likelihood_view_.extent);
-        dropout_activations_view_ = array_view<int, 3>(neuron_likelihood_view_.extent);
-        top_raw_weights_view_ = array_view<float, 3>(neuron_likelihood_view_.extent);
+        neuron_activations_view_ = array_view<int, 3>(top_layer.depth(), top_layer.height(), top_layer.width());
+        dropout_activations_view_ = array_view<int, 3>(neuron_activations_view_.extent);
+        top_raw_weights_view_ = array_view<float, 3>(neuron_activations_view_.extent);
 
         dropout_prob_ = 0.0f;
         fill(dropout_activations_view_, 0);
@@ -1066,13 +973,14 @@ namespace deep_learning_lib
     bitmap_image ConvolveLayer::GenerateImage() const
     {
         neuron_weights_view_.synchronize();
-        neuron_activation_probs_view_.synchronize();
+        neuron_activation_counts_view_.synchronize();
+        neuron_life_counts_view_.synchronize();
         vbias_view_.synchronize();
         hbias_view_.synchronize();
 
-        for (int i = 0; i < neuron_activation_probs_.size(); i++)
+        for (int i = 0; i < neuron_activation_counts_.size(); i++)
         {
-            cout << neuron_activation_probs_[i] << endl;
+            cout << neuron_activation_counts_[i] / fmax(1.0f, neuron_life_counts_[i]) << endl;
         }
 
         bitmap_image image;

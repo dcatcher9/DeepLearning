@@ -38,21 +38,29 @@ namespace deep_learning_lib
         int shortterm_memory_num_;
 
     public:
-        // value = longterm memory + neuron
         concurrency::array_view<float, 3> value_view_;
         concurrency::array_view<float, 3> expect_view_;
         concurrency::array_view<float, 3> next_value_view_;
         concurrency::array_view<float, 3> next_expect_view_;
-        concurrency::array_view<float, 3> temp_value_view_;
-        concurrency::array_view<float, 3> temp_expect_view_;
 
         // short term memory view
         concurrency::array_view<float, 4> shortterm_memory_view_;
         // index into shortterm memory in temporal order.
         concurrency::array_view<int, 1> shortterm_memory_index_view_;
 
-        // temporary storage of raw weights, for label prediction and model training
+        // the actual activation sampled according to activation prob at each position.
+        // 1 - activated; 0 - inactivated
         // [depth_idx, height_idx, width_idx]
+        concurrency::array_view<int, 3> memory_activations_view_;
+
+        float dropout_prob_;
+        // whether dropout is activated at each position
+        // 1 - activate dropout; 0 - disable dropout
+        // [depth_idx, height_idx, width_idx]
+        concurrency::array_view<int, 3> dropout_activations_view_;
+
+        // temporary storage of raw weights, for label prediction and model training
+        // [depth_idx = neuron_idx, height_idx, width_idx]
         concurrency::array_view<float, 3> raw_weights_view_;
 
         tinymt_collection<3> rand_collection_;
@@ -173,8 +181,8 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
-            const ConvolveLayer& conv_layer, const float dropout_prob);
+        int PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
+            ConvolveLayer& conv_layer, const float dropout_prob);
 
         void PassDown(const DataLayer& top_layer, DataSlot top_slot, DataSlot output_slot);
 
@@ -196,26 +204,6 @@ namespace deep_learning_lib
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
-
-        // the likelihood of data against model at each position.
-        // neuron with neuron_likelihood below this threshold is suppressed, so it serves as a dynamic sparse prior, which depends on the input data.
-        // [top_height_idx, top_width_idx]
-        concurrency::array_view<float, 2> model_likelihood_view_;
-
-        // the likelihood of data against model at each position if the corresponding neuron is turned off
-        // [neuron_idx, top_height_idx, top_width_idx]
-        concurrency::array_view<float, 3> neuron_likelihood_gain_view_;
-
-        // the actual activation sampled according to activation prob at each position.
-        // 1 - activated; 0 - inactivated
-        // [neuron_idx, top_height_idx, top_width_idx]
-        concurrency::array_view<int, 3> neuron_activations_view_;
-
-        float dropout_prob_;
-        // whether dropout is activated at each position
-        // 1 - activate dropout; 0 - disable dropout
-        // [neuron_idx, top_height_idx, top_width_idx]
-        concurrency::array_view<int, 3> dropout_activations_view_;
         
         // forget the past activation history for better future
         const float kNeuronDecay = 0.999f;
@@ -224,9 +212,9 @@ namespace deep_learning_lib
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<float, 4> neuron_weights_view_;
 
-        // activation count for each neuron. used for caculating the activation probability.
+        // activation count for each neuron. used for calculating the activation probability.
         // activated neuron will serve as instinct memory; inactivated neuron will serve as longterm memory.
-        // neuron activation is differernt from data layer activation. Their dimension is just different.
+        // neuron activation is different from data layer activation. Their dimension is just different.
         // [neuron_idx]
         concurrency::array_view<float> neuron_activation_counts_view_;
         // the total count that each neuron has the chance to activate.
@@ -273,9 +261,6 @@ namespace deep_learning_lib
         void PassDown(const DataLayer& top_layer, DataSlot top_slot,
             DataLayer& bottom_layer, DataSlot bottom_slot,
             OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
-
-        void ActivateMemoryNeuron(DataLayer& top_layer, DataSlot top_slot,
-            const DataLayer& bottom_layer, DataSlot bottom_data_slot, DataSlot bottom_model_slot) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, float learning_rate,
