@@ -51,6 +51,10 @@ namespace deep_learning_lib
         // index into shortterm memory in temporal order.
         concurrency::array_view<int, 1> shortterm_memory_index_view_;
 
+        // temporary storage of raw weights, for label prediction and model training
+        // [depth_idx, height_idx, width_idx]
+        concurrency::array_view<float, 3> raw_weights_view_;
+
         tinymt_collection<3> rand_collection_;
 
     public:
@@ -187,7 +191,8 @@ namespace deep_learning_lib
     private:
         // parameters we need to learn
         std::vector<float> neuron_weights_;
-        std::vector<float> neuron_activation_probs_;
+        std::vector<float> neuron_activation_counts_;
+        std::vector<float> neuron_life_counts_;
         // bias for visible nodes, i.e. bottom nodes
         std::vector<float> vbias_;
         std::vector<float> hbias_;
@@ -197,9 +202,9 @@ namespace deep_learning_lib
         // [top_height_idx, top_width_idx]
         concurrency::array_view<float, 2> model_likelihood_view_;
 
-        // the likelihood of data against neuron at each position
+        // the likelihood of data against model at each position if the corresponding neuron is turned off
         // [neuron_idx, top_height_idx, top_width_idx]
-        concurrency::array_view<float, 3> neuron_likelihood_view_;
+        concurrency::array_view<float, 3> neuron_likelihood_gain_view_;
 
         // the actual activation sampled according to activation prob at each position.
         // 1 - activated; 0 - inactivated
@@ -211,20 +216,21 @@ namespace deep_learning_lib
         // 1 - activate dropout; 0 - disable dropout
         // [neuron_idx, top_height_idx, top_width_idx]
         concurrency::array_view<int, 3> dropout_activations_view_;
-
-        // temporary storage of raw weights, for label prediction
-        // [neuron_idx, top_height_idx, top_width_idx]
-        concurrency::array_view<float, 3> top_raw_weights_view_;
+        
+        // forget the past activation history for better future
+        const float kNeuronDecay = 0.999f;
         
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<float, 4> neuron_weights_view_;
 
-        // activation probability for each neuron.
+        // activation count for each neuron. used for caculating the activation probability.
         // activated neuron will serve as instinct memory; inactivated neuron will serve as longterm memory.
         // neuron activation is differernt from data layer activation. Their dimension is just different.
         // [neuron_idx]
-        concurrency::array_view<float> neuron_activation_probs_view_;
+        concurrency::array_view<float> neuron_activation_counts_view_;
+        // the total count that each neuron has the chance to activate.
+        concurrency::array_view<float> neuron_life_counts_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<float> vbias_view_;
