@@ -46,12 +46,12 @@ void TestUSPS()
     int row_count = stoi(headers[0]);
     int row_len = stoi(headers[1]);
 
-    const float train_fraction = 0.8f;
+    const double train_fraction = 0.8;
 
-    vector<const vector<float>> train_data;
+    vector<const vector<double>> train_data;
     vector<const int> train_labels;
 
-    vector<const vector<float>> test_data;
+    vector<const vector<double>> test_data;
     vector<const int> test_labels;
 
     train_data.reserve(row_count);
@@ -60,20 +60,20 @@ void TestUSPS()
     test_labels.reserve(row_count);
 
     default_random_engine generator;
-    uniform_real_distribution<float> rand;
+    uniform_real_distribution<double> rand;
 
     while (getline(ifs, line))
     {
         auto bits = split(line, " ", false);
-        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
-        auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
+        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stod(s); }) >> to_vector();
+        auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stod(s); }) >> to_vector();
 
         if (rand(generator) < train_fraction)
         {
             train_data.emplace_back(data_bits);
             for (int i = 0; i < label_bits.size(); i++)
             {
-                if (label_bits[i] == 1.0f)
+                if (label_bits[i] == 1.0)
                 {
                     train_labels.emplace_back(i);
                     break;
@@ -85,7 +85,7 @@ void TestUSPS()
             test_data.emplace_back(data_bits);
             for (int i = 0; i < label_bits.size(); i++)
             {
-                if (label_bits[i] == 1.0f)
+                if (label_bits[i] == 1.0)
                 {
                     test_labels.emplace_back(i);
                     break;
@@ -97,26 +97,29 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(10, 16, 16, 20);
+    model.AddConvolveLayer(800, 16, 16);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
-    const float dropout_prob = 0.5f;
+    const double dropout_prob = 0.5;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    for (int i = 1; i < 500; i++)
+    for (int i = 1; i < 20000; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        float err = model.TrainLayer(data, 1, 0.2f, dropout_prob, label, false);
+        auto err = model.TrainLayer(data, 1, 0.05, dropout_prob, label, false);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
-        if (i % 10 == 0)
+        if (i % 5000 == 0)
         {
-            float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+            auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
             cout << "P = " << precision << endl;
         }
     }
+
+    auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+    cout << "P = " << precision << endl;
 
 
     model.GenerateImages("model_dump");
@@ -135,12 +138,12 @@ void TestRBM()
     int row_count = stoi(headers[0]);
     int row_len = stoi(headers[1]);
 
-    const float train_fraction = 0.99f;
+    const double train_fraction = 0.8;
 
-    vector<const vector<float>> train_data;
+    vector<const vector<double>> train_data;
     vector<const int> train_labels;
 
-    vector<const vector<float>> test_data;
+    vector<const vector<double>> test_data;
     vector<const int> test_labels;
 
     train_data.reserve(row_count);
@@ -149,20 +152,20 @@ void TestRBM()
     test_labels.reserve(row_count);
 
     default_random_engine generator;
-    uniform_real_distribution<float> rand;
+    uniform_real_distribution<double> rand;
 
     while (getline(ifs, line))
     {
         auto bits = split(line, " ", false);
-        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
-        auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stof(s); }) >> to_vector();
+        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stod(s); }) >> to_vector();
+        auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stod(s); }) >> to_vector();
 
         if (rand(generator) < train_fraction)
         {
             train_data.emplace_back(data_bits);
             for (int i = 0; i < label_bits.size(); i++)
             {
-                if (label_bits[i] == 1.0f)
+                if (label_bits[i] == 1.0)
                 {
                     train_labels.emplace_back(i);
                     break;
@@ -174,7 +177,7 @@ void TestRBM()
             test_data.emplace_back(data_bits);
             for (int i = 0; i < label_bits.size(); i++)
             {
-                if (label_bits[i] == 1.0f)
+                if (label_bits[i] == 1.0)
                 {
                     test_labels.emplace_back(i);
                     break;
@@ -186,23 +189,23 @@ void TestRBM()
     DeepModel model;
 
     model.AddDataLayer(256, 1, 1);
-    model.AddConvolveLayer(200, 1, 1, 10);
+    model.AddConvolveLayer(200, 1, 1);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
-    const float dropout_prob = 0.5f;
+    const auto dropout_prob = 0.5;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    for (int i = 0; i < 500; i++)
+    for (int i = 1; i < 500; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        float err = model.TrainLayer(data, 1, 0.2f, dropout_prob, label, false);
-        cout << "iter " << i << ": err = " << err << " idx = "<< idx << endl;
-        if (i % 10 == 0)
+        auto err = model.TrainLayer(data, 1, 0.2, dropout_prob, label, false);
+        cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
+        if (i % 50 == 0)
         {
-            float precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+            auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
             cout << "P = " << precision << endl;
         }
     }
