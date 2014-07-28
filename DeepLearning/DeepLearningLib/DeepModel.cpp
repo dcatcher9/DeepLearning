@@ -296,7 +296,7 @@ namespace deep_learning_lib
     void OutputLayer::RandomizeParams(unsigned int seed)
     {
         default_random_engine generator(seed);
-        normal_distribution<double> distribution(0.0, 0.05);
+        normal_distribution<double> distribution(0.0, 0.1);
 
         for (auto& w : weights_)
         {
@@ -956,7 +956,7 @@ namespace deep_learning_lib
     void ConvolveLayer::RandomizeParams(unsigned int seed)
     {
         default_random_engine generator(seed);
-        normal_distribution<double> distribution(0.0, 0.05);
+        normal_distribution<double> distribution(0.0, 0.1);
 
         for (auto& w : neuron_weights_)
         {
