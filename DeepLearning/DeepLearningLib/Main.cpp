@@ -97,11 +97,11 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(400, 16, 16);
+    model.AddConvolveLayer(1000, 16, 16);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
-    const double dropout_prob = 0.1;
+    const double dropout_prob = 0;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
     for (int i = 1; i < 20000; i++)
@@ -109,7 +109,7 @@ void TestUSPS()
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        auto err = model.TrainLayer(data, 1, 0.05, dropout_prob, label, false);
+        auto err = model.TrainLayer(data, 1, 0.02, dropout_prob, label, false);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
         /*if (i % 5000 == 0)
         {

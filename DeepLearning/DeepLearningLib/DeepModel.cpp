@@ -69,8 +69,7 @@ namespace deep_learning_lib
     void DataLayer::ActivateDropout(double dropout_prob)
     {
         // no need to change activation when the prob = 1.0 or 0.0 again.
-        if (dropout_prob == dropout_prob_ &&
-            (dropout_prob == 1.0 || dropout_prob == 0.0))
+        if (dropout_prob == dropout_prob_ && (dropout_prob == 1.0 || dropout_prob == 0.0))
         {
             return;
         }
@@ -125,6 +124,7 @@ namespace deep_learning_lib
     float DataLayer::ReconstructionError(DataSlot slot) const
     {
         array_view<float> result(1);
+        result(0) = 0.0f;
 
         array_view<const double, 3> value_view = this->value_view_;
         array_view<const double, 3> recon_expect_view = (*this)[slot].second;
@@ -803,42 +803,42 @@ namespace deep_learning_lib
         array_view<const int, 3> dropout_activation = top_layer.dropout_activations_view_;
         array_view<const int, 3> longterm_memory_activation = top_layer.longterm_memory_activations_view_;
 
-        parallel_for_each(neuron_activation_counts.extent, [=](index<1> idx) restrict(amp)
-        {
-            int neuron_idx = idx[0];
+        //parallel_for_each(neuron_activation_counts.extent, [=](index<1> idx) restrict(amp)
+        //{
+        //    int neuron_idx = idx[0];
 
-            for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-            {
-                for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-                {
-                    // not dropped out
-                    if (dropout_activation(neuron_idx, top_height_idx, top_width_idx) == 0)
-                    {
-                        if (longterm_memory_activation(neuron_idx, top_height_idx, top_width_idx) == 0)
-                        {
-                            auto& life_count = neuron_life_counts(neuron_idx);
-                            auto& activation_count = neuron_activation_counts(neuron_idx);
+        //    for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+        //    {
+        //        for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+        //        {
+        //            // not dropped out
+        //            if (dropout_activation(neuron_idx, top_height_idx, top_width_idx) == 0)
+        //            {
+        //                if (longterm_memory_activation(neuron_idx, top_height_idx, top_width_idx) == 0)
+        //                {
+        //                    auto& life_count = neuron_life_counts(neuron_idx);
+        //                    auto& activation_count = neuron_activation_counts(neuron_idx);
 
-                            life_count = life_count * kNeuronDecay + 1;
-                            activation_count = activation_count * kNeuronDecay;
+        //                    life_count = life_count * kNeuronDecay + 1;
+        //                    activation_count = activation_count * kNeuronDecay;
 
-                            if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5)
-                            {
-                                activation_count++;
-                            }
-                        }
-                        else if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5)
-                        {
-                            auto& life_count = neuron_life_counts(neuron_idx);
-                            auto& activation_count = neuron_activation_counts(neuron_idx);
+        //                    if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5)
+        //                    {
+        //                        activation_count++;
+        //                    }
+        //                }
+        //                else if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5)
+        //                {
+        //                    auto& life_count = neuron_life_counts(neuron_idx);
+        //                    auto& activation_count = neuron_activation_counts(neuron_idx);
 
-                            life_count = life_count * kNeuronDecay + 1;
-                            activation_count = activation_count * kNeuronDecay + 1;
-                        }
-                    }
-                }
-            }
-        });
+        //                    life_count = life_count * kNeuronDecay + 1;
+        //                    activation_count = activation_count * kNeuronDecay + 1;
+        //                }
+        //            }
+        //        }
+        //    }
+        //});
 
         // neuron weights
         // non-tiled version
