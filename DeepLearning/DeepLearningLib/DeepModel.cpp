@@ -24,9 +24,7 @@ namespace deep_learning_lib
         // there is no empty array_view support in amp now, so we just set the extent to (1,1,1,1) when the shortterm_memory_num == 0
         shortterm_memory_view_(shortterm_memory_num == 0 ? make_extent(1, 1, 1, 1) : make_extent(shortterm_memory_num, depth, height, width)),
         shortterm_memory_index_view_(std::max(1, shortterm_memory_num)),
-        longterm_memory_activations_view_(value_view_.extent),
-        dropout_prob_(0.0),
-        dropout_activations_view_(value_view_.extent),
+        neuron_activation_probs_view_(value_view_.extent),
         raw_weights_view_(value_view_.extent),
         rand_collection_(value_view_.extent, seed)
     {
@@ -39,7 +37,7 @@ namespace deep_learning_lib
         {
             shortterm_memory_index_view_[time] = time;
         }
-        fill(dropout_activations_view_, 0);
+        fill(neuron_activation_probs_view_, 0.0);
     }
 
     DataLayer::DataLayer(DataLayer&& other)
@@ -50,9 +48,7 @@ namespace deep_learning_lib
         next_expect_view_(other.next_expect_view_),
         shortterm_memory_view_(other.shortterm_memory_view_),
         shortterm_memory_index_view_(other.shortterm_memory_index_view_),
-        longterm_memory_activations_view_(other.longterm_memory_activations_view_),
-        dropout_prob_(other.dropout_prob_),
-        dropout_activations_view_(other.dropout_activations_view_),
+        neuron_activation_probs_view_(other.neuron_activation_probs_view_),
         raw_weights_view_(other.raw_weights_view_),
         rand_collection_(other.rand_collection_)
     {
@@ -64,41 +60,6 @@ namespace deep_learning_lib
 
         // Copy the data
         copy(data.begin(), data.end(), value_view_);
-    }
-
-    void DataLayer::ActivateDropout(double dropout_prob)
-    {
-        // no need to change activation when the prob = 1.0 or 0.0 again.
-        if (dropout_prob == dropout_prob_ && (dropout_prob == 1.0 || dropout_prob == 0.0))
-        {
-            return;
-        }
-
-        array_view<int, 3> dropout_activations = this->dropout_activations_view_;
-        auto& rand_collection = this->rand_collection_;
-
-        parallel_for_each(dropout_activations.extent,
-            [=](index<3> idx) restrict(amp)
-        {
-            dropout_activations[idx] = rand_collection[idx].next_single() < dropout_prob ? 1 : 0;
-        });
-
-        dropout_prob_ = dropout_prob;
-    }
-
-    void DataLayer::ActivateLongtermMemory(const ConvolveLayer& conv_layer)
-    {
-        array_view<const double> neuron_activation_counts = conv_layer.neuron_activation_counts_view_;
-        array_view<const double> neuron_life_counts = conv_layer.neuron_life_counts_view_;
-        array_view<int, 3> longterm_memory_activations = this->longterm_memory_activations_view_;
-        auto& rand_collection = this->rand_collection_;
-
-        parallel_for_each(longterm_memory_activations.extent,
-            [=](index<3> idx) restrict(amp)
-        {
-            auto neuron_activation_prob = neuron_activation_counts[idx[0]] / fmax(1.0, neuron_life_counts[idx[0]]);
-            longterm_memory_activations[idx] = rand_collection[idx].next_single() < neuron_activation_prob ? 0 : 1;
-        });
     }
 
     void DataLayer::Memorize()
@@ -306,17 +267,14 @@ namespace deep_learning_lib
         weights_view_.refresh();
     }
 
-    int OutputLayer::PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
-        const ConvolveLayer& conv_layer, const double dropout_prob)
+    int OutputLayer::PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot,
+        DataLayer& top_layer, DataSlot top_slot, const ConvolveLayer& conv_layer)
     {
         assert(top_layer.depth() == conv_layer.neuron_num() && top_layer.depth() == this->input_depth());
         assert(top_layer.width() == bottom_layer.width() - conv_layer.neuron_width() + 1 && top_layer.width() == this->input_width());
         assert(top_layer.height() == bottom_layer.height() - conv_layer.neuron_height() + 1 && top_layer.height() == this->input_height());
 
-        // calculate base score, ignore top layer activation. 
-        // longterm memory activation is ignored, since we use raw weight directly.
-        // pass up with full activation in top layers
-        top_layer.ActivateDropout();
+        // calculate base score
         conv_layer.PassUp(bottom_layer, bottom_slot, top_layer, top_slot);
 
         // read only
@@ -324,8 +282,7 @@ namespace deep_learning_lib
         const int top_height = top_layer.height();
         const int top_width = top_layer.width();
 
-        array_view<const double> neuron_activation_counts = conv_layer.neuron_activation_counts_view_;
-        array_view<const double> neuron_life_counts = conv_layer.neuron_life_counts_view_;
+        array_view<const double, 3> top_neuron_activation_probs = top_layer.neuron_activation_probs_view_;
         array_view<const double, 3> top_raw_weights = top_layer.raw_weights_view_;
         array_view<const double> output_bias = this->bias_view_;
         array_view<const double, 4> output_weights = this->weights_view_;
@@ -342,21 +299,13 @@ namespace deep_learning_lib
 
             for (int depth_idx = 0; depth_idx < top_depth; depth_idx++)
             {
-                auto longterm_memory_activation_prob = 1.0 - neuron_activation_counts[depth_idx] / fmax(1.0, neuron_life_counts[depth_idx]);
                 for (int height_idx = 0; height_idx < top_height; height_idx++)
                 {
                     for (int width_idx = 0; width_idx < top_width; width_idx++)
                     {
+                        auto activation_prob = top_neuron_activation_probs(depth_idx, height_idx, width_idx);
                         auto raw_weight = top_raw_weights(depth_idx, height_idx, width_idx) + current_output_weights(depth_idx, height_idx, width_idx);
-                        if (raw_weight > 0)// neuron activated, even if it is a longterm memory neuron
-                        {
-                            energe += log((exp(raw_weight) + 1.0) * (1.0 - dropout_prob) + 2.0 * dropout_prob);
-                        }
-                        else
-                        {
-                            energe += log(((exp(raw_weight) + 1.0) * (1.0 - longterm_memory_activation_prob)
-                                + 2.0 * longterm_memory_activation_prob) * (1.0 - dropout_prob) + 2.0 * dropout_prob);
-                        }
+                        energe += log((exp(raw_weight) + 1.0) * activation_prob + 2.0 * (1.0 - activation_prob));
                     }
                 }
             }
@@ -505,18 +454,20 @@ namespace deep_learning_lib
 
 #pragma region convolve layer
 
-    ConvolveLayer::ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
+    ConvolveLayer::ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width, double sparse_prior)
         : neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
-        neuron_activation_counts_(neuron_num, 1.0),
-        neuron_life_counts_(neuron_num, 1.0),
+        neuron_activation_counts_(neuron_num),
+        neuron_life_counts_(neuron_num),
         neuron_activation_counts_view_(neuron_num, neuron_activation_counts_),
         neuron_life_counts_view_(neuron_num, neuron_life_counts_),
         neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
         hbias_(neuron_num),
-        hbias_view_(neuron_num, hbias_)
+        hbias_view_(neuron_num, hbias_),
+        sparse_prior_(sparse_prior)
     {
+        assert(sparse_prior_ >= 0 && sparse_prior_ <= 1);
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
@@ -529,7 +480,8 @@ namespace deep_learning_lib
         vbias_(move(other.vbias_)),
         vbias_view_(other.vbias_view_),
         hbias_(move(other.hbias_)),
-        hbias_view_(other.hbias_view_)
+        hbias_view_(other.hbias_view_),
+        sparse_prior_(other.sparse_prior_)
     {
     }
 
@@ -552,6 +504,7 @@ namespace deep_learning_lib
         }
 
         // readonly
+        const double sparse_prior = this->sparse_prior_;
         const int neuron_depth = this->neuron_depth();
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
@@ -560,12 +513,12 @@ namespace deep_learning_lib
 
         array_view<const double, 4> neuron_weights = this->neuron_weights_view_;
         array_view<const double> hbias = this->hbias_view_;
+        array_view<const double> neuron_activation_counts = this->neuron_activation_counts_view_;
+        array_view<const double> neuron_life_counts = this->neuron_life_counts_view_;
+
         array_view<const double, 3> bottom_value = bottom_layer[bottom_slot].first;
         array_view<const double, 4> bottom_shortterm_memory = bottom_layer.shortterm_memory_view_;
-        array_view<const int, 1> bottom_shortterm_memory_index = bottom_layer.shortterm_memory_index_view_;
-
-        array_view<const int, 3> dropout_activation = top_layer.dropout_activations_view_;
-        array_view<const int, 3> longterm_memory_activation = top_layer.longterm_memory_activations_view_;
+        array_view<const int> bottom_shortterm_memory_index = bottom_layer.shortterm_memory_index_view_;
 
         // output layer
         static array_view<double> s_empty_output_value(1);
@@ -578,10 +531,12 @@ namespace deep_learning_lib
         const auto& top_data = top_layer[top_slot];
         array_view<double, 3> top_value = top_data.first;
         array_view<double, 3> top_expect = top_data.second;
+        array_view<double, 3> top_neuron_activation_probs = top_layer.neuron_activation_probs_view_;
         array_view<double, 3> top_raw_weights = top_layer.raw_weights_view_;
 
         top_value.discard_data();
         top_expect.discard_data();
+        top_neuron_activation_probs.discard_data();
         top_raw_weights.discard_data();
 
         auto& rand_collection = top_layer.rand_collection_;
@@ -594,25 +549,35 @@ namespace deep_learning_lib
             int top_height_idx = idx[1];
             int top_width_idx = idx[2];
 
-            if (dropout_activation[idx] == 1)
-            {
-                top_expect[idx] = 0.0;
-                top_value[idx] = 0.0;
-                top_raw_weights[idx] = 0.0;
-            }
-            else
-            {
-                auto raw_weight = hbias[top_depth_idx];
+            auto raw_weight = hbias[top_depth_idx];
 
-                if (output_layer_exist)
+            if (output_layer_exist)
+            {
+                for (int output_idx = 0; output_idx < output_value.extent[0]; output_idx++)
                 {
-                    for (int output_idx = 0; output_idx < output_value.extent[0]; output_idx++)
+                    raw_weight += output_value[output_idx] * output_weights[output_idx][idx];
+                }
+            }
+
+            array_view<const double, 3> current_neuron = neuron_weights[top_depth_idx];
+
+            for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < neuron_height; height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                     {
-                        raw_weight += output_value[output_idx] * output_weights[output_idx][idx];
+                        auto value = bottom_value(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx);
+                        auto weight = current_neuron(depth_idx, height_idx, width_idx);
+                        raw_weight += value * weight;
                     }
                 }
+            }
 
-                array_view<const double, 3> current_neuron = neuron_weights[top_depth_idx];
+            // convolve short-term memory in bottom layer if exists.
+            for (int memory_idx = 0; memory_idx < shortterm_memory_num; memory_idx++)
+            {
+                auto current_bottom_memory = bottom_shortterm_memory[bottom_shortterm_memory_index[memory_idx]];
 
                 for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
                 {
@@ -620,45 +585,24 @@ namespace deep_learning_lib
                     {
                         for (int width_idx = 0; width_idx < neuron_width; width_idx++)
                         {
-                            auto value = bottom_value(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx);
-                            auto weight = current_neuron(depth_idx, height_idx, width_idx);
-                            raw_weight += value * weight;
+                            raw_weight += current_bottom_memory(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx)
+                                * current_neuron(bottom_depth * (1 + memory_idx) + depth_idx, height_idx, width_idx);
                         }
                     }
-                }
-
-                // convolve short-term memory in bottom layer if exists.
-                for (int memory_idx = 0; memory_idx < shortterm_memory_num; memory_idx++)
-                {
-                    auto current_bottom_memory = bottom_shortterm_memory[bottom_shortterm_memory_index[memory_idx]];
-
-                    for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
-                    {
-                        for (int height_idx = 0; height_idx < neuron_height; height_idx++)
-                        {
-                            for (int width_idx = 0; width_idx < neuron_width; width_idx++)
-                            {
-                                raw_weight += current_bottom_memory(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx)
-                                    * current_neuron(bottom_depth * (1 + memory_idx) + depth_idx, height_idx, width_idx);
-                            }
-                        }
-                    }
-                }
-
-                top_raw_weights[idx] = raw_weight;
-
-                if (longterm_memory_activation[idx] == 1 && raw_weight <= 0)
-                {
-                    top_expect[idx] = 0.0;
-                    top_value[idx] = 0.0;
-                }
-                else
-                {
-                    auto prob = 1.0 / (1.0 + exp(-raw_weight));
-                    top_expect[idx] = prob;
-                    top_value[idx] = rand_collection[idx].next_single() <= prob ? 1.0 : 0.0;
                 }
             }
+
+            top_raw_weights[idx] = raw_weight;
+            auto exp_value = exp(raw_weight);
+
+            // calculate neuron activation prob
+            auto activation_prior = (neuron_activation_counts[top_depth_idx] + sparse_prior) / (neuron_life_counts[top_depth_idx] + 1.0);
+            auto activation_prob = (exp_value + 1.0) * activation_prior / ((exp_value + 1.0) * activation_prior + 2.0 * (1.0 - activation_prior));
+            top_neuron_activation_probs[idx] = activation_prob;
+
+            auto expect = exp_value / (exp_value + 1.0) * activation_prob;
+            top_expect[idx] = expect;
+            top_value[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
         });
     }
 
@@ -800,45 +744,25 @@ namespace deep_learning_lib
 
         // neuron activation
         const double kNeuronDecay = this->kNeuronDecay;
-        array_view<const int, 3> dropout_activation = top_layer.dropout_activations_view_;
-        array_view<const int, 3> longterm_memory_activation = top_layer.longterm_memory_activations_view_;
+        array_view<const double, 3> top_neuron_activation_probs = top_layer.neuron_activation_probs_view_;
 
-        //parallel_for_each(neuron_activation_counts.extent, [=](index<1> idx) restrict(amp)
-        //{
-        //    int neuron_idx = idx[0];
+        parallel_for_each(neuron_activation_counts.extent, [=](index<1> idx) restrict(amp)
+        {
+            int neuron_idx = idx[0];
 
-        //    for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-        //    {
-        //        for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-        //        {
-        //            // not dropped out
-        //            if (dropout_activation(neuron_idx, top_height_idx, top_width_idx) == 0)
-        //            {
-        //                if (longterm_memory_activation(neuron_idx, top_height_idx, top_width_idx) == 0)
-        //                {
-        //                    auto& life_count = neuron_life_counts(neuron_idx);
-        //                    auto& activation_count = neuron_activation_counts(neuron_idx);
+            for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+            {
+                for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                {
+                    auto& life_count = neuron_life_counts(neuron_idx);
+                    auto& activation_count = neuron_activation_counts(neuron_idx);
 
-        //                    life_count = life_count * kNeuronDecay + 1;
-        //                    activation_count = activation_count * kNeuronDecay;
-
-        //                    if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5)
-        //                    {
-        //                        activation_count++;
-        //                    }
-        //                }
-        //                else if (top_expect(neuron_idx, top_height_idx, top_width_idx) >= 0.5)
-        //                {
-        //                    auto& life_count = neuron_life_counts(neuron_idx);
-        //                    auto& activation_count = neuron_activation_counts(neuron_idx);
-
-        //                    life_count = life_count * kNeuronDecay + 1;
-        //                    activation_count = activation_count * kNeuronDecay + 1;
-        //                }
-        //            }
-        //        }
-        //    }
-        //});
+                    life_count = life_count * kNeuronDecay + 1.0;
+                    activation_count = activation_count * kNeuronDecay
+                        + top_neuron_activation_probs(neuron_idx, top_height_idx, top_width_idx);
+                }
+            }
+        });
 
         // neuron weights
         // non-tiled version
@@ -867,7 +791,7 @@ namespace deep_learning_lib
                     auto cur_bottom_next_value = (discriminative_training || shortterm_memory_idx >= 0) ? cur_bottom_value :
                         bottom_next_value(neuron_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
 
-                    delta += cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect;
+                    delta += (cur_bottom_value * cur_top_expect - cur_bottom_next_value * cur_top_next_expect);
                 }
             }
 
@@ -976,7 +900,7 @@ namespace deep_learning_lib
 
         for (int i = 0; i < neuron_activation_counts_.size(); i++)
         {
-            cout << neuron_activation_counts_[i] / fmax(1.0, neuron_life_counts_[i]) << endl;
+            cout << (neuron_activation_counts_[i] + sparse_prior_) / (neuron_life_counts_[i] + 1.0) << endl;
         }
 
         bitmap_image image;
@@ -1226,11 +1150,13 @@ namespace deep_learning_lib
         layer_stack_.emplace_back(LayerType::kDataLayer, data_layers_.size() - 1);
     }
 
-    void DeepModel::AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width)
+    void DeepModel::AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width, double sparse_prior)
     {
         assert(!layer_stack_.empty() && layer_stack_.back().first == LayerType::kDataLayer);
         const auto& last_data_layer = data_layers_[layer_stack_.back().second];
-        convolve_layers_.emplace_back(neuron_num, last_data_layer.depth() * (1 + last_data_layer.shortterm_memory_num()), neuron_height, neuron_width);
+        convolve_layers_.emplace_back(neuron_num,
+            last_data_layer.depth() * (1 + last_data_layer.shortterm_memory_num()),
+            neuron_height, neuron_width, sparse_prior);
         convolve_layers_.back().RandomizeParams(uniform_int_distribution<int>()(random_engine_));
         layer_stack_.emplace_back(LayerType::kConvolveLayer, convolve_layers_.size() - 1);
     }
@@ -1263,13 +1189,11 @@ namespace deep_learning_lib
             assert(layer_stack_[layer_idx + 1].first == LayerType::kDataLayer);
             auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx - 1].second];
             auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 1].second];
-            top_data_layer.ActivateDropout();
 
             assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer || layer_stack_[layer_idx].first == LayerType::kPoolingLayer);
             if (layer_stack_[layer_idx].first == LayerType::kConvolveLayer)
             {
                 const auto& conv_layer = convolve_layers_[layer_stack_[layer_idx].second];
-                top_data_layer.ActivateLongtermMemory(conv_layer);
                 conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent);
             }
             else
@@ -1295,7 +1219,6 @@ namespace deep_learning_lib
             assert(layer_stack_[layer_idx + 1].first == LayerType::kDataLayer);
             auto& bottom_data_layer = data_layers_[layer_stack_[layer_idx - 1].second];
             auto& top_data_layer = data_layers_[layer_stack_[layer_idx + 1].second];
-            bottom_data_layer.ActivateDropout();
 
             assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer || layer_stack_[layer_idx].first == LayerType::kPoolingLayer);
             if (layer_stack_[layer_idx].first == LayerType::kConvolveLayer)
@@ -1311,8 +1234,8 @@ namespace deep_learning_lib
         }
     }
 
-    double DeepModel::TrainLayer(const vector<double>& data, int layer_idx, double learning_rate,
-        double dropout_prob, const int label, bool discriminative_training)
+    double DeepModel::TrainLayer(const vector<double>& data, int layer_idx,
+        double learning_rate, const int label, bool discriminative_training)
     {
         assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer);
         assert(layer_idx >= 1 && layer_stack_[layer_idx - 1].first == LayerType::kDataLayer);
@@ -1325,8 +1248,6 @@ namespace deep_learning_lib
 
         // train with contrastive divergence (CD) algorithm to maximize likelihood on dataset
         bottom_data_layer.SetValue(data);
-        top_data_layer.ActivateDropout(dropout_prob);
-        top_data_layer.ActivateLongtermMemory(conv_layer);
 
         if (label == -1)
         {
@@ -1370,7 +1291,7 @@ namespace deep_learning_lib
         return bottom_data_layer.ReconstructionError(DataSlot::kNext);
     }
 
-    int DeepModel::PredictLabel(const vector<double>& data, const int layer_idx, const double dropout_prob)
+    int DeepModel::PredictLabel(const vector<double>& data, const int layer_idx)
     {
         assert(layer_idx >= 0 && layer_idx + 2 < layer_stack_.size()
             && layer_stack_[layer_idx].first == LayerType::kDataLayer
@@ -1385,12 +1306,10 @@ namespace deep_learning_lib
 
         bottom_data_layer.SetValue(data);
         // top layer activation is ignored when predicting labels
-        return output_layer.PredictLabel(bottom_data_layer, DataSlot::kCurrent,
-            top_data_layer, DataSlot::kCurrent, conv_layer, dropout_prob);
+        return output_layer.PredictLabel(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent, conv_layer);
     }
 
-    double DeepModel::Evaluate(const vector<const vector<double>>& dataset, const vector<const int>& labels,
-        int layer_idx, const double dropout_prob)
+    double DeepModel::Evaluate(const vector<const vector<double>>& dataset, const vector<const int>& labels, int layer_idx)
     {
         assert(dataset.size() == labels.size());
 
@@ -1398,7 +1317,7 @@ namespace deep_learning_lib
 
         for (int i = 0; i < dataset.size(); i++)
         {
-            int predicted_label = PredictLabel(dataset[i], layer_idx, dropout_prob);
+            int predicted_label = PredictLabel(dataset[i], layer_idx);
             if (predicted_label == labels[i])
             {
                 correct_count++;

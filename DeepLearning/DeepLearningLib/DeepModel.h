@@ -49,16 +49,9 @@ namespace deep_learning_lib
         // index into shortterm memory in temporal order.
         concurrency::array_view<int, 1> shortterm_memory_index_view_;
 
-        // the actual activation sampled according to activation prob at each position.
-        // 1 - activated; 0 - inactivated
+        // the neuron activation prob at each position.
         // [depth_idx, height_idx, width_idx]
-        concurrency::array_view<int, 3> longterm_memory_activations_view_;
-
-        double dropout_prob_;
-        // whether dropout is activated at each position
-        // 1 - activate dropout; 0 - disable dropout
-        // [depth_idx, height_idx, width_idx]
-        concurrency::array_view<int, 3> dropout_activations_view_;
+        concurrency::array_view<double, 3> neuron_activation_probs_view_;
 
         // temporary storage of raw weights, for label prediction and model training
         // [depth_idx = neuron_idx, height_idx, width_idx]
@@ -107,10 +100,6 @@ namespace deep_learning_lib
         }
 
         void SetValue(const std::vector<double>& data);
-
-        void ActivateDropout(double dropout_prob = 0.0);
-
-        void ActivateLongtermMemory(const ConvolveLayer& conv_layer);
 
         // store current value into shortterm memory.
         void Memorize();
@@ -179,8 +168,8 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot, DataLayer& top_layer, DataSlot top_slot,
-            const ConvolveLayer& conv_layer, const double dropout_prob);
+        int PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot,
+            DataLayer& top_layer, DataSlot top_slot, const ConvolveLayer& conv_layer);
 
         void PassDown(const DataLayer& top_layer, DataSlot top_slot, DataSlot output_slot);
 
@@ -202,9 +191,11 @@ namespace deep_learning_lib
         // bias for visible nodes, i.e. bottom nodes
         std::vector<double> vbias_;
         std::vector<double> hbias_;
+
+        double sparse_prior_;
         
         // forget the past activation history for better future
-        const double kNeuronDecay = 0.99f;
+        const double kNeuronDecay = 0.9999;
         
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -223,7 +214,8 @@ namespace deep_learning_lib
         concurrency::array_view<double> hbias_view_;
 
     public:
-        ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
+        // sparse_prior: the expected precentage of neuron should be activated a prior
+        ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width, double sparse_prior = 1.0);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
@@ -309,7 +301,7 @@ namespace deep_learning_lib
         void AddDataLayer(int shortterm_memory_num = 0);
 
         // deduce the parameters from the data layer below
-        void AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width);
+        void AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width, double sparse_prior = 1.0);
 
         void AddOutputLayer(int output_num);
 
@@ -317,13 +309,12 @@ namespace deep_learning_lib
         void PassDown();
 
         double TrainLayer(const std::vector<double>& data, int layer_idx,
-            double learning_rate, double dropout_prob,
-            const int label = -1, bool discriminative_training = false);
+            double learning_rate, const int label = -1, bool discriminative_training = false);
 
-        int PredictLabel(const std::vector<double>& data, const int layer_idx, const double dropout_prob);
+        int PredictLabel(const std::vector<double>& data, const int layer_idx);
 
-        double Evaluate(const std::vector<const std::vector<double>>& dataset, const std::vector<const int>& labels,
-            int layer_idx, const double dropout_prob);
+        double Evaluate(const std::vector<const std::vector<double>>& dataset,
+            const std::vector<const int>& labels, int layer_idx);
 
         void GenerateImages(const std::string& folder) const;
 

@@ -97,28 +97,27 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(1000, 16, 16);
+    model.AddConvolveLayer(1000, 16, 16, 0.5);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
-    const double dropout_prob = 0;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    for (int i = 1; i < 20000; i++)
+    for (int i = 1; i < 10000; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        auto err = model.TrainLayer(data, 1, 0.02, dropout_prob, label, false);
+        auto err = model.TrainLayer(data, 1, 0.03, label, false);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
         /*if (i % 5000 == 0)
         {
-            auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+            auto precision = model.Evaluate(test_data, test_labels, 0);
             cout << "P = " << precision << endl;
         }*/
     }
 
-    auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+    auto precision = model.Evaluate(test_data, test_labels, 0);
     cout << "P = " << precision << endl;
 
 
@@ -193,7 +192,6 @@ void TestRBM()
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
-    const auto dropout_prob = 0;
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
     for (int i = 1; i < 20000; i++)
@@ -201,16 +199,16 @@ void TestRBM()
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        auto err = model.TrainLayer(data, 1, 0.05, dropout_prob, label, false);
+        auto err = model.TrainLayer(data, 1, 0.05, label, false);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
        /* if (i % 50 == 0)
         {
-            auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+            auto precision = model.Evaluate(test_data, test_labels, 0);
             cout << "P = " << precision << endl;
         }*/
     }
 
-    auto precision = model.Evaluate(test_data, test_labels, 0, dropout_prob);
+    auto precision = model.Evaluate(test_data, test_labels, 0);
     cout << "P = " << precision << endl;
 
     model.GenerateImages("model_dump");
