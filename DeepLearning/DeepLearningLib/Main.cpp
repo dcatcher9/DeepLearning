@@ -97,13 +97,13 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(1000, 16, 16, 0.5);
+    model.AddConvolveLayer(100, 8, 8, 0.9);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    for (int i = 1; i < 10000; i++)
+    for (int i = 1; i < 20000; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
