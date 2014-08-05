@@ -1319,11 +1319,13 @@ namespace deep_learning_lib
         return output_layer.PredictLabel(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent, conv_layer);
     }
 
-    double DeepModel::Evaluate(const vector<const vector<double>>& dataset, const vector<const int>& labels, int layer_idx)
+    pair<double, vector<tuple<int, int, int>>> DeepModel::Evaluate(const vector<const vector<double>>& dataset, const vector<const int>& labels, int layer_idx)
     {
         assert(dataset.size() == labels.size());
 
         auto correct_count = 0.0;
+
+        vector<tuple<int, int, int>> wrong_cases;
 
         for (int i = 0; i < dataset.size(); i++)
         {
@@ -1332,9 +1334,13 @@ namespace deep_learning_lib
             {
                 correct_count++;
             }
+            else
+            {
+                wrong_cases.emplace_back(i, predicted_label, labels[i]);
+            }
         }
 
-        return correct_count / labels.size();
+        return make_pair(correct_count / labels.size(), move(wrong_cases));
     }
 
     void DeepModel::GenerateImages(const string& folder) const

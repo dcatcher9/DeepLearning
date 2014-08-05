@@ -97,7 +97,7 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(100, 8, 8, 0.9);
+    model.AddConvolveLayer(500, 16, 16, 0.9);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
@@ -117,8 +117,11 @@ void TestUSPS()
         }*/
     }
 
-    auto precision = model.Evaluate(test_data, test_labels, 0);
-    cout << "P = " << precision << endl;
+    const auto& train_eval_result = model.Evaluate(train_data, train_labels, 0);
+    cout << "Train P = " << train_eval_result.first << endl;
+
+    const auto& test_eval_result = model.Evaluate(test_data, test_labels, 0);
+    cout << "Test P = " << test_eval_result.first << endl;
 
 
     model.GenerateImages("model_dump");
@@ -208,8 +211,11 @@ void TestRBM()
         }*/
     }
 
-    auto precision = model.Evaluate(test_data, test_labels, 0);
-    cout << "P = " << precision << endl;
+    const auto& train_eval_result = model.Evaluate(train_data, train_labels, 0);
+    cout << "Train P = " << train_eval_result.first << endl;
+
+    const auto& test_eval_result = model.Evaluate(test_data, test_labels, 0);
+    cout << "Test P = " << test_eval_result.first << endl;
 
     model.GenerateImages("model_dump");
 }

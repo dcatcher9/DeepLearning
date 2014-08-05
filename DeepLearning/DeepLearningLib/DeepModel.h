@@ -195,7 +195,7 @@ namespace deep_learning_lib
         double sparse_prior_;
         
         // forget the past activation history for better future
-        const double kNeuronDecay = 0.9999;
+        const double kNeuronDecay = 0.99;
         
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -313,7 +313,7 @@ namespace deep_learning_lib
 
         int PredictLabel(const std::vector<double>& data, const int layer_idx);
 
-        double Evaluate(const std::vector<const std::vector<double>>& dataset,
+        std::pair<double, std::vector<std::tuple<int, int, int>>> Evaluate(const std::vector<const std::vector<double>>& dataset,
             const std::vector<const int>& labels, int layer_idx);
 
         void GenerateImages(const std::string& folder) const;
