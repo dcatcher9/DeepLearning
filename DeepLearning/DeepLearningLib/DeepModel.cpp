@@ -716,6 +716,43 @@ namespace deep_learning_lib
         }
     }
 
+    void ConvolveLayer::ActivateNewNeuron(DataLayer& top_layer, DataSlot top_slot) const
+    {
+        if (sparse_prior_ < 1.0)
+        {
+            const int top_depth = top_layer.depth();
+            const int top_height = top_layer.height();
+            const int top_width = top_layer.width();
+
+            const auto& top_data = top_layer[top_slot];
+            array_view<double, 3> top_expect = top_data.second;
+            array_view<double, 3> top_neuron_activation_probs = top_layer.neuron_activation_probs_view_;
+
+            // simulate the activation of new neuron in IBP prior
+            parallel_for_each(concurrency::extent<2>(top_height, top_width), [=](index<2> idx) restrict(amp)
+            {
+                int top_height_idx = idx[0];
+                int top_width_idx = idx[1];
+
+                int min_top_depth_index = 0;
+                auto min_value = top_neuron_activation_probs(0, top_height_idx, top_width_idx);
+                for (int top_depth_idx = 1; top_depth_idx < top_depth; top_depth_idx++)
+                {
+                    auto value = top_neuron_activation_probs(top_depth_idx, top_height_idx, top_width_idx);
+                    if (value < min_value)
+                    {
+                        min_value = value;
+                        min_top_depth_index = top_depth_idx;
+                    }
+                }
+
+                top_neuron_activation_probs(min_top_depth_index, top_height_idx, top_width_idx) = 1.0;
+                top_expect(min_top_depth_index, top_height_idx, top_width_idx) = 1.0;
+                //top_value
+            });
+        }
+    }
+
     void ConvolveLayer::Train(const DataLayer& bottom_layer, const DataLayer& top_layer, double learning_rate,
         OutputLayer* output_layer, bool discriminative_training)
     {
@@ -730,6 +767,7 @@ namespace deep_learning_lib
 
         array_view<const double, 3> top_expect = top_layer.expect_view_;
         array_view<const double, 3> top_next_expect = top_layer.next_expect_view_;
+        array_view<const double, 3> top_neuron_activation_probs = top_layer.neuron_activation_probs_view_;
         array_view<const double, 3> bottom_value = bottom_layer.value_view_;
         array_view<const double, 3> bottom_next_value = bottom_layer.next_value_view_;
         array_view<const double, 3> bottom_next_expect = bottom_layer.next_expect_view_;
@@ -866,7 +904,6 @@ namespace deep_learning_lib
 
         // neuron activation
         const double kNeuronDecay = this->kNeuronDecay;
-        array_view<const double, 3> top_neuron_activation_probs = top_layer.neuron_activation_probs_view_;
 
         parallel_for_each(neuron_activation_counts.extent, [=](index<1> idx) restrict(amp)
         {
@@ -1263,8 +1300,10 @@ namespace deep_learning_lib
         {
             // purely generative training without label
             conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent, top_data_layer, DataSlot::kCurrent);
+            conv_layer.ActivateNewNeuron(top_data_layer, DataSlot::kCurrent);
             conv_layer.PassDown(top_data_layer, DataSlot::kCurrent, bottom_data_layer, DataSlot::kNext);
             conv_layer.PassUp(bottom_data_layer, DataSlot::kNext, top_data_layer, DataSlot::kNext);
+            conv_layer.ActivateNewNeuron(top_data_layer, DataSlot::kNext);
 
             conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate);
         }
@@ -1276,6 +1315,7 @@ namespace deep_learning_lib
 
             conv_layer.PassUp(bottom_data_layer, DataSlot::kCurrent,
                 top_data_layer, DataSlot::kCurrent, &output_layer, DataSlot::kCurrent);
+            conv_layer.ActivateNewNeuron(top_data_layer, DataSlot::kCurrent);
 
             if (discriminative_training)
             {
@@ -1291,6 +1331,7 @@ namespace deep_learning_lib
                 conv_layer.PassUp(bottom_data_layer, DataSlot::kNext,
                     top_data_layer, DataSlot::kNext, &output_layer, DataSlot::kNext);
             }
+            conv_layer.ActivateNewNeuron(top_data_layer, DataSlot::kNext);
 
             conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
         }
