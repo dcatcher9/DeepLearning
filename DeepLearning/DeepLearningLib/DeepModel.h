@@ -248,7 +248,7 @@ namespace deep_learning_lib
             DataLayer& bottom_layer, DataSlot bottom_slot,
             OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
 
-        void ActivateNewNeuron(DataLayer& top_layer, DataSlot top_slot) const;
+        void ActivateLongtermMemory(DataLayer& top_layer) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, double learning_rate,
