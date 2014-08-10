@@ -35,7 +35,7 @@ namespace deep_learning_lib
     }
 
     template<typename T, int Rank>
-    inline void fill(concurrency::array_view<T, Rank>& arr, T initValue)
+    inline void fill(const concurrency::array_view<T, Rank>& arr, T initValue)
     {
         arr.discard_data();
         concurrency::parallel_for_each(arr.extent,
@@ -46,7 +46,7 @@ namespace deep_learning_lib
     }
 
     template<typename T, int Rank>
-    inline std::pair<concurrency::index<Rank>, T> min(concurrency::array_view<T, Rank>& arr)
+    inline std::pair<concurrency::index<Rank>, T> min(const concurrency::array_view<T, Rank>& arr)
     {
         typedef typename std::remove_const<T>::type TT;
 

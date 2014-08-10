@@ -12,10 +12,11 @@
 
 namespace deep_learning_lib
 {
-    enum class DataSlot
+    enum class DataSlotType
     {
         kCurrent,
-        kNext
+        kNext,
+        kTemp// for temporary storage of itermediate data
     };
 
     class ConvolveLayer;
@@ -39,31 +40,32 @@ namespace deep_learning_lib
         int shortterm_memory_num_;
 
     public:
-        concurrency::array_view<double, 3> value_view_;
-        concurrency::array_view<double, 3> expect_view_;
-        concurrency::array_view<double, 3> next_value_view_;
-        concurrency::array_view<double, 3> next_expect_view_;
+        struct DataSlot
+        {
+            concurrency::array_view<double, 3> values_view_;
+            concurrency::array_view<double, 3> expects_view_;
+            // temporary storage of raw weights, for label prediction and model training
+            // Although you can use expect to calculate raw weight, the numeric error is not ignorable.
+            // [depth_idx = neuron_idx, height_idx, width_idx]
+            concurrency::array_view<double, 3> raw_weights_view_;
+
+            explicit DataSlot(int depth, int height, int width);
+        };
+
+    public:
+        DataSlot cur_data_slot_;
+        DataSlot next_data_slot_;
+        DataSlot tmp_data_slot_;
 
         // short term memory view
-        concurrency::array_view<double, 4> shortterm_memory_view_;
+        concurrency::array_view<double, 4> shortterm_memories_view_;
         // index into shortterm memory in temporal order.
         concurrency::array_view<int, 1> shortterm_memory_index_view_;
-
-        // the neuron activation prob at each position.
-        // [depth_idx, height_idx, width_idx]
-        concurrency::array_view<double, 3> neuron_activation_probs_view_;
-
-        // temporary storage of raw weights, for label prediction and model training
-        // [depth_idx = neuron_idx, height_idx, width_idx]
-        concurrency::array_view<double, 3> raw_weights_view_;
 
         tinymt_collection<3> rand_collection_;
 
     public:
-        DataLayer(int shortterm_memory_num, int depth, int height, int width, int seed = 0);
-        // Disable copy constructor
-        DataLayer(const DataLayer&) = delete;
-        DataLayer(DataLayer&& other);
+        explicit DataLayer(int shortterm_memory_num, int depth, int height, int width, int seed = 0);
 
         inline int shortterm_memory_num() const
         {
@@ -72,28 +74,29 @@ namespace deep_learning_lib
 
         inline int depth() const
         {
-            return value_view_.extent[0];
+            return cur_data_slot_.values_view_.extent[0];
         }
 
         inline int height() const
         {
-            return value_view_.extent[1];
+            return cur_data_slot_.values_view_.extent[1];
         }
 
         inline int width() const
         {
-            return value_view_.extent[2];
+            return cur_data_slot_.values_view_.extent[2];
         }
 
-        inline std::pair<concurrency::array_view<double, 3>, concurrency::array_view<double, 3>>
-            operator[](const DataSlot data_slot) const
+        inline const DataSlot& operator[](const DataSlotType data_slot_type) const
         {
-            switch (data_slot)
+            switch (data_slot_type)
             {
-            case DataSlot::kCurrent:
-                return std::make_pair(value_view_, expect_view_);
-            case DataSlot::kNext:
-                return std::make_pair(next_value_view_, next_expect_view_);
+            case DataSlotType::kCurrent:
+                return cur_data_slot_;
+            case DataSlotType::kNext:
+                return next_data_slot_;
+            case DataSlotType::kTemp:
+                return tmp_data_slot_;
             default:
                 throw("Invalid data slot type for data layer.");
             }
@@ -104,7 +107,7 @@ namespace deep_learning_lib
         // store current value into shortterm memory.
         void Memorize();
 
-        float ReconstructionError(DataSlot slot) const;
+        float ReconstructionError(DataSlotType slot_type) const;
 
         bitmap_image GenerateImage() const;
     };
@@ -116,49 +119,61 @@ namespace deep_learning_lib
     {
     private:
         std::vector<double> bias_;
-        std::vector<double> weights_;
+        std::vector<double> neuron_weights_;
 
     public:
-        concurrency::array_view<double> outputs_view_;
-        concurrency::array_view<double> next_outputs_view_;
+        struct DataSlot
+        {
+            concurrency::array_view<double> outputs_view_;
+            concurrency::array_view<double> raw_weights_view_;
+
+            explicit DataSlot(int output_num);
+        };
+
+    public:
+        DataSlot cur_data_slot_;
+        DataSlot next_data_slot_;
+        DataSlot tmp_data_slot_;
 
         concurrency::array_view<double> bias_view_;
-        concurrency::array_view<double, 4> weights_view_;
+        concurrency::array_view<double, 4> neuron_weights_view_;
 
     public:
-        OutputLayer(int output_num, int input_depth, int input_height, int input_width);
+        explicit OutputLayer(int output_num, int input_depth, int input_height, int input_width);
         // Disable copy constructor
         OutputLayer(const OutputLayer&) = delete;
         OutputLayer(OutputLayer&& other);
 
         inline int output_num() const
         {
-            return weights_view_.extent[0];
+            return neuron_weights_view_.extent[0];
         }
 
         inline int input_depth() const
         {
-            return weights_view_.extent[1];
+            return neuron_weights_view_.extent[1];
         }
 
         inline int input_height() const
         {
-            return weights_view_.extent[2];
+            return neuron_weights_view_.extent[2];
         }
 
         inline int input_width() const
         {
-            return weights_view_.extent[3];
+            return neuron_weights_view_.extent[3];
         }
 
-        inline concurrency::array_view<double> operator[](const DataSlot data_slot) const
+        inline const DataSlot& operator[](const DataSlotType data_slot_type) const
         {
-            switch (data_slot)
+            switch (data_slot_type)
             {
-            case DataSlot::kCurrent:
-                return outputs_view_;
-            case DataSlot::kNext:
-                return next_outputs_view_;
+            case DataSlotType::kCurrent:
+                return cur_data_slot_;
+            case DataSlotType::kNext:
+                return next_data_slot_;
+            case DataSlotType::kTemp:
+                return tmp_data_slot_;
             default:
                 throw("Invalid data slot type for output layer.");
             }
@@ -168,10 +183,10 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(const DataLayer& bottom_layer, DataSlot bottom_slot,
-            DataLayer& top_layer, DataSlot top_slot, const ConvolveLayer& conv_layer);
+        int PredictLabel(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type, const ConvolveLayer& conv_layer);
 
-        void PassDown(const DataLayer& top_layer, DataSlot top_slot, DataSlot output_slot);
+        void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type, DataSlotType output_slot_type);
 
         bitmap_image GenerateImage() const;
     };
@@ -180,42 +195,33 @@ namespace deep_learning_lib
     // So the model layer has 5-dimensional structure. 
     // 1. Responsible for processing data layer using neurons within and adjusting neuron weights during learning.
     // 2. Responsible for long term memory logic.
-    // 3. Suppose dropout with fixed probability.
     class ConvolveLayer
     {
     private:
         // parameters we need to learn
         std::vector<double> neuron_weights_;
         std::vector<double> neuron_activation_counts_;
-        std::vector<double> neuron_life_counts_;
         // bias for visible nodes, i.e. bottom nodes
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        double sparse_prior_;
-        
         // forget the past activation history for better future
         const double kNeuronDecay = 0.99;
-        
+
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<double, 4> neuron_weights_view_;
 
-        // activation count for each neuron. used for calculating the activation probability.
-        // activated neuron will serve as instinct memory; inactivated neuron will serve as longterm memory.
-        // neuron activation is different from data layer activation. Their dimension is just different.
+        // activation count for each neuron. debug purpose.
         // [neuron_idx]
         concurrency::array_view<double> neuron_activation_counts_view_;
-        // the total count that each neuron has the chance to activate.
-        concurrency::array_view<double> neuron_life_counts_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<double> vbias_view_;
         concurrency::array_view<double> hbias_view_;
 
     public:
-        // sparse_prior: the expected precentage of neuron should be activated a prior
-        ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width, double sparse_prior = 1.0);
+        explicit ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width, double sparse_prior = 1.0);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
@@ -240,15 +246,17 @@ namespace deep_learning_lib
             return neuron_weights_view_.extent[3];
         }
 
-        void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
-            DataLayer& top_layer, DataSlot top_slot,
-            const OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
+        void PassUp(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type,
+            const OutputLayer* output_layer = nullptr) const;
 
-        void PassDown(const DataLayer& top_layer, DataSlot top_slot,
-            DataLayer& bottom_layer, DataSlot bottom_slot,
-            OutputLayer* output_layer = nullptr, DataSlot output_slot = DataSlot::kCurrent) const;
+        void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
+            DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            OutputLayer* output_layer = nullptr) const;
 
-        void ActivateLongtermMemory(DataLayer& top_layer) const;
+        void SuppressInactiveNeurons(DataLayer& top_layer, DataSlotType top_slot_type,
+            const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
+            const OutputLayer* output_layer = nullptr) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, double learning_rate,
@@ -283,11 +291,11 @@ namespace deep_learning_lib
             return block_width_;
         }
 
-        void PassUp(const DataLayer& bottom_layer, DataSlot bottom_slot,
-            DataLayer& top_layer, DataSlot top_slot) const;
+        void PassUp(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
 
-        void PassDown(const DataLayer& top_layer, DataSlot top_slot,
-            DataLayer& bottom_layer, DataSlot bottom_slot) const;
+        void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
+            DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
     };
 
     class DeepModel
