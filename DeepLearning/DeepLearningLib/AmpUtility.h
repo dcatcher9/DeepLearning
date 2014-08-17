@@ -46,8 +46,10 @@ namespace deep_learning_lib
     }
 
     template<typename T, int Rank>
-    inline std::pair<concurrency::index<Rank>, T> min(const concurrency::array_view<T, Rank>& arr)
+    std::pair<concurrency::index<Rank>, T> min(const concurrency::array_view<T, Rank>& arr)
     {
+        static_assert(std::is_same<T, int>::value || std::is_same<T, float>::value, "only allow atomic operation for int and float type.");
+
         typedef typename std::remove_const<T>::type TT;
 
         concurrency::array_view<TT> min_value_view(1);
@@ -104,6 +106,69 @@ namespace deep_learning_lib
         assert(arr[min_index] == min_value);
 
         return std::make_pair(min_index, min_value);
+    }
+
+    template<typename T, int Rank>
+    std::pair<concurrency::index<Rank>, T> max(const concurrency::array_view<T, Rank>& arr)
+    {
+        typedef typename std::remove_const<T>::type TT;
+
+        static_assert(std::is_same<TT, int>::value || std::is_same<TT, float>::value, "only allow atomic operation for int and float type.");
+
+        concurrency::array_view<TT> max_value_view(1);
+        max_value_view(0) = std::numeric_limits<TT>::min();
+
+        concurrency::parallel_for_each(arr.extent, [=](concurrency::index<Rank> idx) restrict(amp)
+        {
+            TT old_max_value = max_value_view(0);
+            TT new_max_value;
+            T current_value = arr[idx];
+            do
+            {
+                new_max_value = current_value > old_max_value ? current_value : old_max_value;
+            } while (!concurrency::atomic_compare_exchange(
+                reinterpret_cast<unsigned int*>(&max_value_view(0)),
+                reinterpret_cast<unsigned int*>(&old_max_value),
+                (*(reinterpret_cast<unsigned int*>(&new_max_value)))));
+        });
+
+        concurrency::array_view<int> max_index_view(1);// used to communicate the min index back
+        max_index_view(0) = arr.extent.size();
+        concurrency::parallel_for_each(arr.extent, [=](concurrency::index<Rank> idx) restrict(amp)
+        {
+            T current_value = arr[idx];
+            if (current_value == max_value_view(0))
+            {
+                int old_max_index = max_index_view(0);
+                int new_max_index;
+                // flatten the index, take the smallest upon a draw
+                int current_index = idx[0];
+                for (int i = 1; i < Rank; ++i)
+                {
+                    current_index = current_index * arr.extent[i] + idx[i];
+                }
+                do
+                {
+                    new_max_index = current_index < old_max_index ? current_index : old_max_index;
+                } while (!concurrency::atomic_compare_exchange(
+                    reinterpret_cast<unsigned int*>(&max_index_view(0)),
+                    reinterpret_cast<unsigned int*>(&old_max_index),
+                    (*(reinterpret_cast<unsigned int*>(&new_max_index)))));
+            }
+        });
+
+        T max_value = max_value_view(0);
+        int max_flat_index = max_index_view(0);
+        concurrency::index<Rank> max_index;
+        for (int i = Rank - 1; i >= 0; --i)
+        {
+            max_index[i] = max_flat_index % arr.extent[i];
+            max_flat_index = (max_flat_index - max_index[i]) / arr.extent[i];
+        }
+
+        assert(arr[max_index] == max_value);
+
+        return std::make_pair(max_index, max_value);
     }
 
     // until c++14, we cannot use initializer_list.size to remove the dependency on size template parameter

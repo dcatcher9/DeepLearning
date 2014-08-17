@@ -48,6 +48,9 @@ namespace deep_learning_lib
             // Although you can use expect to calculate raw weight, the numeric error is not ignorable.
             // [depth_idx = neuron_idx, height_idx, width_idx]
             concurrency::array_view<double, 3> raw_weights_view_;
+            concurrency::array_view<double, 3> likelihood_gains_view_;
+            // [height_idx, width_idx]
+            concurrency::array_view<float, 2> potential_gains_view_;
 
             explicit DataSlot(int depth, int height, int width);
         };
@@ -183,7 +186,7 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+        int PredictLabel(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
             DataLayer& top_layer, DataSlotType top_slot_type, const ConvolveLayer& conv_layer);
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type, DataSlotType output_slot_type);
@@ -201,6 +204,7 @@ namespace deep_learning_lib
         // parameters we need to learn
         std::vector<double> neuron_weights_;
         std::vector<double> neuron_activation_counts_;
+        std::vector<float> neuron_likelihood_gains_;
         // bias for visible nodes, i.e. bottom nodes
         std::vector<double> vbias_;
         std::vector<double> hbias_;
@@ -215,6 +219,9 @@ namespace deep_learning_lib
         // activation count for each neuron. debug purpose.
         // [neuron_idx]
         concurrency::array_view<double> neuron_activation_counts_view_;
+        // the accumulated gain of likelihood for each neuron
+        // [neuron_idx]
+        concurrency::array_view<float> neuron_likelihood_gains_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<double> vbias_view_;
@@ -255,6 +262,11 @@ namespace deep_learning_lib
             OutputLayer* output_layer = nullptr) const;
 
         void SuppressInactiveNeurons(DataLayer& top_layer, DataSlotType top_slot_type,
+            const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
+            const OutputLayer* output_layer = nullptr) const;
+
+        // the potential lilkelihood gain by adding a new neuron
+        void CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
             const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
             const OutputLayer* output_layer = nullptr) const;
 
