@@ -228,7 +228,7 @@ namespace deep_learning_lib
         concurrency::array_view<double> hbias_view_;
 
     public:
-        explicit ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width, double sparse_prior = 1.0);
+        explicit ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
@@ -323,7 +323,7 @@ namespace deep_learning_lib
         void AddDataLayer(int shortterm_memory_num = 0);
 
         // deduce the parameters from the data layer below
-        void AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width, double sparse_prior = 1.0);
+        void AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width);
 
         void AddOutputLayer(int output_num);
 

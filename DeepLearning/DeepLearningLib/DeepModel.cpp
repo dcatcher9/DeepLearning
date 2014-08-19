@@ -481,7 +481,7 @@ namespace deep_learning_lib
 
 #pragma region convolve layer
 
-    ConvolveLayer::ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width, double sparse_prior)
+    ConvolveLayer::ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
         : neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
         neuron_activation_counts_(neuron_num),
         neuron_activation_counts_view_(neuron_num, neuron_activation_counts_),
@@ -1399,13 +1399,13 @@ namespace deep_learning_lib
         layer_stack_.emplace_back(LayerType::kDataLayer, data_layers_.size() - 1);
     }
 
-    void DeepModel::AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width, double sparse_prior)
+    void DeepModel::AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width)
     {
         assert(!layer_stack_.empty() && layer_stack_.back().first == LayerType::kDataLayer);
         const auto& last_data_layer = data_layers_[layer_stack_.back().second];
         convolve_layers_.emplace_back(neuron_num,
             last_data_layer.depth() * (1 + last_data_layer.shortterm_memory_num()),
-            neuron_height, neuron_width, sparse_prior);
+            neuron_height, neuron_width);
         convolve_layers_.back().RandomizeParams(uniform_int_distribution<int>()(random_engine_));
         layer_stack_.emplace_back(LayerType::kConvolveLayer, convolve_layers_.size() - 1);
     }
@@ -1535,6 +1535,8 @@ namespace deep_learning_lib
             }
             else
             {
+                /*conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent, bottom_data_layer, DataSlotType::kNext, &output_layer);
+                conv_layer.PassUp(bottom_data_layer, DataSlotType::kNext, top_data_layer, DataSlotType::kNext, &output_layer);*/
                 conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent, bottom_data_layer, DataSlotType::kTemp, &output_layer);
                 conv_layer.SuppressInactiveNeurons(top_data_layer, DataSlotType::kCurrent,
                     bottom_data_layer, DataSlotType::kCurrent, DataSlotType::kTemp, &output_layer);
