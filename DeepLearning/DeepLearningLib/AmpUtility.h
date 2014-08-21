@@ -25,6 +25,14 @@ namespace deep_learning_lib
     }
 
     template<typename T, int Rank>
+    std::vector<T> CopyToVector(concurrency::array_view<T, Rank>& arr)
+    {
+        std::vector<T> v(arr.extent.size());
+        concurrency::copy(arr, v.begin());
+        return v;
+    }
+
+    template<typename T, int Rank>
     inline void fill(concurrency::array<T, Rank>& arr, T initValue)
     {
         concurrency::parallel_for_each(arr.extent,

@@ -825,6 +825,8 @@ namespace deep_learning_lib
 
             likelihood_gains[idx] = likelihood_gain;
         });
+
+        auto gain_tmp = CopyToVector(likelihood_gains);
     }
 
     void ConvolveLayer::CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
@@ -1008,6 +1010,7 @@ namespace deep_learning_lib
 
             conv_hbias[idx] += delta / (top_height * top_width) * learning_rate;
         });
+        neuron_activation_counts_view_.synchronize();
 
         // for output layer
         if (output_layer != nullptr)
@@ -1538,11 +1541,18 @@ namespace deep_learning_lib
                 /*conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent, bottom_data_layer, DataSlotType::kNext, &output_layer);
                 conv_layer.PassUp(bottom_data_layer, DataSlotType::kNext, top_data_layer, DataSlotType::kNext, &output_layer);*/
                 conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent, bottom_data_layer, DataSlotType::kTemp, &output_layer);
+
+                auto recon_err = bottom_data_layer.ReconstructionError(DataSlotType::kTemp);
+
                 conv_layer.SuppressInactiveNeurons(top_data_layer, DataSlotType::kCurrent,
                     bottom_data_layer, DataSlotType::kCurrent, DataSlotType::kTemp, &output_layer);
 
                 conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent,
                     bottom_data_layer, DataSlotType::kNext, &output_layer);
+
+                auto recon_err2 = bottom_data_layer.ReconstructionError(DataSlotType::kNext);
+
+                std::cout << "recon err: " << recon_err << "\t after suppresion: " << recon_err2 << std::endl;
 
                 conv_layer.PassUp(bottom_data_layer, DataSlotType::kNext,
                     top_data_layer, DataSlotType::kNext, &output_layer);
