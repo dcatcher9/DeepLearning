@@ -210,7 +210,7 @@ namespace deep_learning_lib
         std::vector<double> hbias_;
 
         // forget the past activation history for better future
-        const double kNeuronDecay = 0.99;
+        const double kNeuronDecay = 0.975;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
