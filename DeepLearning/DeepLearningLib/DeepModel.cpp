@@ -1,6 +1,6 @@
 #include "DeepModel.h"
 
-#include <assert.h>
+#include <cassert>
 #include <random>
 #include <amp_math.h>
 #include <iostream>
@@ -34,15 +34,11 @@ namespace deep_learning_lib
     DataLayer::DataSlot::DataSlot(int depth, int height, int width)
         : values_view_(depth, height, width),
         expects_view_(values_view_.extent),
-        raw_weights_view_(values_view_.extent),
-        likelihood_gains_view_(values_view_.extent),
-        potential_gains_view_(height, width)
+        raw_weights_view_(values_view_.extent)
     {
         fill(values_view_, 0.0);
         fill(expects_view_, 0.0);
         fill(raw_weights_view_, 0.0);
-        fill(likelihood_gains_view_, 0.0);
-        fill(potential_gains_view_, 0.0f);
     }
 
     DataLayer::DataLayer(int shortterm_memory_num, int depth, int height, int width, int seed)
@@ -50,11 +46,13 @@ namespace deep_learning_lib
         cur_data_slot_(depth, height, width),
         next_data_slot_(depth, height, width),
         tmp_data_slot_(depth, height, width),
+        likelihood_gains_view_(depth, height, width),
         // there is no empty array_view support in amp now, so we just set the extent to (1,1,1,1) when the shortterm_memory_num == 0
         shortterm_memories_view_(shortterm_memory_num == 0 ? make_extent(1, 1, 1, 1) : make_extent(shortterm_memory_num, depth, height, width)),
         shortterm_memory_index_view_(std::max(1, shortterm_memory_num)),
         rand_collection_(extent<3>(depth, height, width), seed)
     {
+        fill(likelihood_gains_view_, 0.0);
         fill(shortterm_memories_view_, 0.0);
         for (int time = 0; time < shortterm_memory_num; time++)
         {

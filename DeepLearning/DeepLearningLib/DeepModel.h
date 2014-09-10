@@ -16,7 +16,7 @@ namespace deep_learning_lib
     {
         kCurrent,
         kNext,
-        kTemp// for temporary storage of itermediate data
+        kTemp// for temporary storage of intermediate data
     };
 
     class ConvolveLayer;
@@ -48,9 +48,6 @@ namespace deep_learning_lib
             // Although you can use expect to calculate raw weight, the numeric error is not ignorable.
             // [depth_idx = neuron_idx, height_idx, width_idx]
             concurrency::array_view<double, 3> raw_weights_view_;
-            concurrency::array_view<double, 3> likelihood_gains_view_;
-            // [height_idx, width_idx]
-            concurrency::array_view<float, 2> potential_gains_view_;
 
             explicit DataSlot(int depth, int height, int width);
         };
@@ -59,6 +56,10 @@ namespace deep_learning_lib
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
         DataSlot tmp_data_slot_;
+
+        // The likelihood gain of each neuron at each position when passing data up to this layer.
+        // [depth_idx = neuron_idx, height_idx, width_idx]
+        concurrency::array_view<double, 3> likelihood_gains_view_;
 
         // short term memory view
         concurrency::array_view<double, 4> shortterm_memories_view_;
