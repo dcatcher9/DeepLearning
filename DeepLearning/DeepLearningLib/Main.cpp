@@ -110,6 +110,7 @@ void TestUSPS()
         const auto label = train_labels[idx];
         auto err = model.TrainLayer(data, 1, 0.03, label, false);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
+        model.GenerateImages("model_dump");
         /*if (i % 5000 == 0)
         {
             auto precision = model.Evaluate(test_data, test_labels, 0);

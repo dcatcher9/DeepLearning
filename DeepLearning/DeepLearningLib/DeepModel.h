@@ -187,8 +187,7 @@ namespace deep_learning_lib
 
         void RandomizeParams(unsigned int seed);
 
-        int PredictLabel(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type, const ConvolveLayer& conv_layer);
+        int PredictLabel(DataLayer& bottom_layer, DataLayer& top_layer, const ConvolveLayer& conv_layer);
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type, DataSlotType output_slot_type);
 
@@ -266,10 +265,10 @@ namespace deep_learning_lib
             const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
             const OutputLayer* output_layer = nullptr) const;
 
-        // the potential lilkelihood gain by adding a new neuron
-        void CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
-            const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-            const OutputLayer* output_layer = nullptr) const;
+        //// the potential lilkelihood gain by adding a new neuron
+        //void CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
+        //    const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
+        //    const OutputLayer* output_layer = nullptr) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, double learning_rate,
