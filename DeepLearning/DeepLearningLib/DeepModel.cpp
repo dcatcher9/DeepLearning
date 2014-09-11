@@ -769,9 +769,14 @@ namespace deep_learning_lib
         likelihood_gains.discard_data();
 
         array_view<double, 3> data_likelihood_gains(likelihood_gains.extent);
+        array_view<double, 4> active_weights(make_extent(top_layer.depth(), bottom_depth, neuron_height, neuron_width));
+        array_view<double, 4> inactive_weights(make_extent(top_layer.depth(), bottom_depth, neuron_height, neuron_width));
+        array_view<double, 4> pernode_gains(make_extent(top_layer.depth(), bottom_depth, neuron_height, neuron_width));
 
         auto value_tmp = CopyToVector(top_values);
         auto expect_tmp = CopyToVector(top_expects);
+        auto bottom_expect = CopyToVector(bottom_data_expects);
+        auto bottom_model_weights = CopyToVector(bottom_model_raw_weights);
 
         parallel_for_each(top_expects.extent, [=](index<3> idx) restrict(amp)
         {
@@ -799,8 +804,14 @@ namespace deep_learning_lib
                         auto active_weight = raw_weight + (1.0 - top_value) * neuron_weight;
                         auto inactive_weight = raw_weight - top_value * neuron_weight;
 
-                        likelihood_gain += log(data_expect / (1.0 + exp(-active_weight)) + (1.0 - data_expect) / (1.0 + exp(active_weight)))
+                        active_weights[top_depth_idx](depth_idx, height_idx, width_idx) = active_weight;
+                        inactive_weights[top_depth_idx](depth_idx, height_idx, width_idx) = inactive_weight;
+
+                        auto gain = log(data_expect / (1.0 + exp(-active_weight)) + (1.0 - data_expect) / (1.0 + exp(active_weight)))
                             - log(data_expect / (1.0 + exp(-inactive_weight)) + (1.0 - data_expect) / (1.0 + exp(inactive_weight)));
+
+                        pernode_gains[top_depth_idx](depth_idx, height_idx, width_idx) = gain;
+                        likelihood_gain += gain;
                     }
                 }
             }
@@ -836,6 +847,16 @@ namespace deep_learning_lib
 
         auto data_gain_tmp = CopyToVector(data_likelihood_gains);
         auto gain_tmp = CopyToVector(likelihood_gains);
+
+        vector<vector<double>> active_weights_tmp;
+        vector<vector<double>> inactive_weights_tmp;
+        vector<vector<double>> pernode_gain_tmp;
+        for (int i = 0; i < top_layer.depth(); i++)
+        {
+            active_weights_tmp.emplace_back(CopyToVector(active_weights[i]));
+            inactive_weights_tmp.emplace_back(CopyToVector(inactive_weights[i]));
+            pernode_gain_tmp.emplace_back(CopyToVector(pernode_gains[i]));
+        }
     }
 
     //void ConvolveLayer::CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
@@ -1548,7 +1569,7 @@ namespace deep_learning_lib
 
             if (discriminative_training)
             {
-                // TODO: support discrminative memory
+                // TODO: support discriminative memory
                 output_layer.PassDown(top_data_layer, DataSlotType::kCurrent, DataSlotType::kNext);
                 conv_layer.PassUp(bottom_data_layer, DataSlotType::kCurrent,
                     top_data_layer, DataSlotType::kNext, &output_layer);
