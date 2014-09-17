@@ -747,6 +747,7 @@ namespace deep_learning_lib
         bool output_layer_exist = output_layer != nullptr;
 
         // readonly
+        const int top_depth = top_layer.depth();
         const int neuron_height = this->neuron_height();
         const int neuron_width = this->neuron_width();
         const int bottom_depth = bottom_layer.depth();
@@ -789,8 +790,10 @@ namespace deep_learning_lib
 
             // the gain of likelihood of data when this neuron is turned on
             auto likelihood_gain = 0.0;
+            auto neuron_similarity = 0.0;
 
             auto& top_value = top_values[idx];
+            auto& top_expect = top_expects[idx];
             const auto& cur_conv_neuron = conv_neuron_weights[top_depth_idx];
 
             for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
@@ -812,11 +815,14 @@ namespace deep_learning_lib
 
                         auto active_expect = 1.0 / (1.0 + exp(-active_weight));
                         auto inactive_expect = 1.0 / (1.0 + exp(-inactive_weight));
+                        auto neuron_expect = 1.0 / (1.0 + exp(-neuron_weight));
 
                         auto gain = fabs(inactive_expect - data_expect) - fabs(active_expect - data_expect);
 
                         //pernode_gains[top_depth_idx](depth_idx, height_idx, width_idx) = gain;
                         likelihood_gain += gain;
+
+                        neuron_similarity += 1.0 - fabs(neuron_expect - data_expect);
                     }
                 }
             }
@@ -838,21 +844,63 @@ namespace deep_learning_lib
 
                     auto active_expect = 1.0 / (1.0 + exp(-active_weight));
                     auto inactive_expect = 1.0 / (1.0 + exp(-inactive_weight));
+                    auto neuron_expect = 1.0 / (1.0 + exp(-neuron_weight));
 
                     likelihood_gain += fabs(inactive_expect - data_expect) - fabs(active_expect - data_expect);
+                    neuron_similarity += 1.0 - fabs(neuron_expect - data_expect);
                 }
             }
 
             if (likelihood_gain < 0)
             {
-                // top_expect is untouched because it's used in training.
+                // top_expect should represent the similarity between each neuron and the data
                 top_value = 0.0;
+                top_expect = 0.0;
+                //top_expect = neuron_similarity / (bottom_depth * neuron_height * neuron_width + (output_layer_exist ? output_num : 0));
             }
 
             likelihood_gains[idx] = likelihood_gain;
         });
 
         auto gain_tmp = CopyToVector(likelihood_gains);
+        auto expect_tmp = CopyToVector(top_expects);
+
+        /*parallel_for_each(extent<2>(top_layer.height(), top_layer.width()), [=](index<2> idx) restrict(amp)
+        {
+            int top_height_idx = idx[0];
+            int top_width_idx = idx[1];
+
+            int max_similarity_idx = -1;
+            auto max_similarity = 0.0;
+            for (int top_depth_idx = 0; top_depth_idx < top_depth; top_depth_idx++)
+            {
+                auto likelihood_gain = likelihood_gains(top_depth_idx, top_height_idx, top_width_idx);
+                auto& top_expect = top_expects(top_depth_idx, top_height_idx, top_width_idx);
+                if (likelihood_gain < 0)
+                {
+                    if (top_expect > max_similarity)
+                    {
+                        max_similarity = top_expect;
+                        max_similarity_idx = top_depth_idx;
+                    }
+                }
+            }
+
+            for (int top_depth_idx = 0; top_depth_idx < top_depth; top_depth_idx++)
+            {
+                auto likelihood_gain = likelihood_gains(top_depth_idx, top_height_idx, top_width_idx);
+                auto& top_expect = top_expects(top_depth_idx, top_height_idx, top_width_idx);
+                if (likelihood_gain < 0)
+                {
+                    if (top_depth_idx != max_similarity_idx)
+                    {
+                        top_expect = 0.0;
+                    }
+                }
+            }
+        });
+
+        expect_tmp = CopyToVector(top_expects);*/
 
         /*auto data_gain_tmp = CopyToVector(data_likelihood_gains);
         
@@ -1049,7 +1097,7 @@ namespace deep_learning_lib
                         ? top_expect : top_next_expects(neuron_idx, top_height_idx, top_width_idx);
 
                     delta += top_expect - top_next_expect;
-                    activation_count = activation_count * kNeuronDecay + ;
+                    activation_count = activation_count * kNeuronDecay + top_expect;
                 }
             }
 
