@@ -203,8 +203,11 @@ namespace deep_learning_lib
     private:
         // parameters we need to learn
         std::vector<double> neuron_weights_;
+        
+        // neuron activation history, used to indentifying factor neuron or mixture neuron.
         std::vector<double> neuron_activation_counts_;
-        std::vector<float> neuron_likelihood_gains_;
+        double total_activation_count_;
+        
         // bias for visible nodes, i.e. bottom nodes
         std::vector<double> vbias_;
         std::vector<double> hbias_;
@@ -212,16 +215,16 @@ namespace deep_learning_lib
         // forget the past activation history for better future
         const double kNeuronDecay = 0.975;
 
+        // activation count for each neuron. debug purpose.
+        // [neuron_idx]
+        concurrency::array_view<double> neuron_activation_counts_view_;
+        
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<double, 4> neuron_weights_view_;
 
-        // activation count for each neuron. debug purpose.
         // [neuron_idx]
-        concurrency::array_view<double> neuron_activation_counts_view_;
-        // the accumulated gain of likelihood for each neuron
-        // [neuron_idx]
-        concurrency::array_view<float> neuron_likelihood_gains_view_;
+        concurrency::array_view<double> neuron_factor_probs_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<double> vbias_view_;
@@ -261,9 +264,9 @@ namespace deep_learning_lib
             DataLayer& bottom_layer, DataSlotType bottom_slot_type,
             OutputLayer* output_layer = nullptr) const;
 
-        void SuppressInactiveNeurons(DataLayer& top_layer, DataSlotType top_slot_type,
+        /*void SuppressInactiveNeurons(DataLayer& top_layer, DataSlotType top_slot_type,
             const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-            const OutputLayer* output_layer = nullptr) const;
+            const OutputLayer* output_layer = nullptr) const;*/
 
         //// the potential lilkelihood gain by adding a new neuron
         //void CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
