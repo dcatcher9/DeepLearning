@@ -16,7 +16,7 @@ namespace deep_learning_lib
     {
         kCurrent,
         kNext,
-        kTemp// for temporary storage of intermediate data
+        kInvalid
     };
 
     class ConvolveLayer;
@@ -48,6 +48,9 @@ namespace deep_learning_lib
             // Although you can use expect to calculate raw weight, the numeric error is not ignorable.
             // [depth_idx = neuron_idx, height_idx, width_idx]
             concurrency::array_view<double, 3> raw_weights_view_;
+            // The likelihood gain of each neuron at each position when passing data up to this layer.
+            // [depth_idx = neuron_idx, height_idx, width_idx]
+            concurrency::array_view<double, 3> likelihoods_view_;
 
             explicit DataSlot(int depth, int height, int width);
         };
@@ -55,11 +58,6 @@ namespace deep_learning_lib
     public:
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
-        DataSlot tmp_data_slot_;
-
-        // The likelihood gain of each neuron at each position when passing data up to this layer.
-        // [depth_idx = neuron_idx, height_idx, width_idx]
-        concurrency::array_view<double, 3> likelihood_gains_view_;
 
         // short term memory view
         concurrency::array_view<double, 4> shortterm_memories_view_;
@@ -99,8 +97,6 @@ namespace deep_learning_lib
                 return cur_data_slot_;
             case DataSlotType::kNext:
                 return next_data_slot_;
-            case DataSlotType::kTemp:
-                return tmp_data_slot_;
             default:
                 throw("Invalid data slot type for data layer.");
             }
@@ -137,7 +133,6 @@ namespace deep_learning_lib
     public:
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
-        DataSlot tmp_data_slot_;
 
         concurrency::array_view<double> bias_view_;
         concurrency::array_view<double, 4> neuron_weights_view_;
@@ -176,8 +171,6 @@ namespace deep_learning_lib
                 return cur_data_slot_;
             case DataSlotType::kNext:
                 return next_data_slot_;
-            case DataSlotType::kTemp:
-                return tmp_data_slot_;
             default:
                 throw("Invalid data slot type for output layer.");
             }
@@ -204,27 +197,19 @@ namespace deep_learning_lib
         // parameters we need to learn
         std::vector<double> neuron_weights_;
         
-        // neuron activation history, used to indentifying factor neuron or mixture neuron.
-        std::vector<double> neuron_activation_counts_;
-        double total_activation_count_;
-        
         // bias for visible nodes, i.e. bottom nodes
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
+        // for debug
+        concurrency::array_view<double> neuron_activation_counts_view_;
+
         // forget the past activation history for better future
         const double kNeuronDecay = 0.975;
 
-        // activation count for each neuron. debug purpose.
-        // [neuron_idx]
-        concurrency::array_view<double> neuron_activation_counts_view_;
-        
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<double, 4> neuron_weights_view_;
-
-        // [neuron_idx]
-        concurrency::array_view<double> neuron_factor_probs_view_;
 
         // corresponding to the depth dimension
         concurrency::array_view<double> vbias_view_;
@@ -258,20 +243,11 @@ namespace deep_learning_lib
 
         void PassUp(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
             DataLayer& top_layer, DataSlotType top_slot_type,
-            const OutputLayer* output_layer = nullptr) const;
+            const OutputLayer* output_layer = nullptr, DataSlotType output_slot_type = DataSlotType::kInvalid) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
             DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            OutputLayer* output_layer = nullptr) const;
-
-        /*void SuppressInactiveNeurons(DataLayer& top_layer, DataSlotType top_slot_type,
-            const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-            const OutputLayer* output_layer = nullptr) const;*/
-
-        //// the potential lilkelihood gain by adding a new neuron
-        //void CalcPotentialGains(DataLayer& top_layer, DataSlotType top_slot_type,
-        //    const DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-        //    const OutputLayer* output_layer = nullptr) const;
+            OutputLayer* output_layer = nullptr, DataSlotType output_slot_type = DataSlotType::kInvalid) const;
 
         // generative or discriminative training
         void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, double learning_rate,
