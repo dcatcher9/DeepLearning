@@ -16,6 +16,7 @@ namespace deep_learning_lib
     {
         kCurrent,
         kNext,
+        kTemp,
         kInvalid
     };
 
@@ -37,20 +38,16 @@ namespace deep_learning_lib
     class DataLayer
     {
     private:
-        int shortterm_memory_num_;
+        int shortterm_memory_num_ = 0;
 
     public:
         struct DataSlot
         {
             concurrency::array_view<double, 3> values_view_;
             concurrency::array_view<double, 3> expects_view_;
-            // temporary storage of raw weights, for label prediction and model training
-            // Although you can use expect to calculate raw weight, the numeric error is not ignorable.
+            // raw weights before neuron activation
             // [depth_idx = neuron_idx, height_idx, width_idx]
             concurrency::array_view<double, 3> raw_weights_view_;
-            // The likelihood gain of each neuron at each position when passing data up to this layer.
-            // [depth_idx = neuron_idx, height_idx, width_idx]
-            concurrency::array_view<double, 3> likelihoods_view_;
 
             explicit DataSlot(int depth, int height, int width);
         };
@@ -58,6 +55,7 @@ namespace deep_learning_lib
     public:
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
+        DataSlot tmp_data_slot_;
 
         // short term memory view
         concurrency::array_view<double, 4> shortterm_memories_view_;
@@ -97,6 +95,8 @@ namespace deep_learning_lib
                 return cur_data_slot_;
             case DataSlotType::kNext:
                 return next_data_slot_;
+            case DataSlotType::kTemp:
+                return tmp_data_slot_;
             default:
                 throw("Invalid data slot type for data layer.");
             }
@@ -133,6 +133,7 @@ namespace deep_learning_lib
     public:
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
+        DataSlot tmp_data_slot_;
 
         concurrency::array_view<double> bias_view_;
         concurrency::array_view<double, 4> neuron_weights_view_;
@@ -171,6 +172,8 @@ namespace deep_learning_lib
                 return cur_data_slot_;
             case DataSlotType::kNext:
                 return next_data_slot_;
+            case DataSlotType::kTemp:
+                return tmp_data_slot_;
             default:
                 throw("Invalid data slot type for output layer.");
             }
@@ -201,11 +204,7 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        // for debug
-        concurrency::array_view<double> neuron_activation_counts_view_;
-
-        // forget the past activation history for better future
-        const double kNeuronDecay = 0.975;
+        const int kPassUpIteration = 10;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -241,9 +240,9 @@ namespace deep_learning_lib
             return neuron_weights_view_.extent[3];
         }
 
-        void PassUp(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+        void PassUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
             DataLayer& top_layer, DataSlotType top_slot_type,
-            const OutputLayer* output_layer = nullptr, DataSlotType output_slot_type = DataSlotType::kInvalid) const;
+            OutputLayer* output_layer = nullptr, DataSlotType output_slot_type = DataSlotType::kInvalid) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
             DataLayer& bottom_layer, DataSlotType bottom_slot_type,
