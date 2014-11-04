@@ -104,6 +104,8 @@ namespace deep_learning_lib
 
         void SetValue(const std::vector<double>& data);
 
+        void Clear(DataSlotType slot_type);
+
         // store current value into shortterm memory.
         void Memorize();
 

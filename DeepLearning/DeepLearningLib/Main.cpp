@@ -108,7 +108,7 @@ void TestUSPS()
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        auto err = model.TrainLayer(data, 1, 0.1, label, false);
+        auto err = model.TrainLayer(data, 1, 0.05, label, false);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
         if (i % 1000 == 0)
         {
