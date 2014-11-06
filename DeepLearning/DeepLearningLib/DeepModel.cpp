@@ -127,29 +127,41 @@ namespace deep_learning_lib
 
         if (width() == 1 && height() == 1)
         {
-            image.setwidth_height(depth() * (block_size + 1), (4 + 2 + shortterm_memory_num()) * (block_size + 1), true);
+            image.setwidth_height(depth() * (block_size + 1), (6 + 2 + shortterm_memory_num()) * (block_size + 1), true);
             for (int i = 0; i < depth(); i++)
             {
                 image.set_region(i * (block_size + 1), 0, block_size, block_size,
-                    cur_data_slot_.values_view_(i, 0, 0) == 0.0 ? 0 : 255);
-            }
-
-            for (int i = 0; i < depth(); i++)
-            {
-                image.set_region(i * (block_size + 1), block_size + 1, block_size, block_size,
-                    next_data_slot_.values_view_(i, 0, 0) == 0.0 ? 0 : 255);
-            }
-
-            for (int i = 0; i < depth(); i++)
-            {
-                image.set_region(i * (block_size + 1), 2 * (block_size + 1), block_size, block_size,
                     static_cast<unsigned char>(255.0 * cur_data_slot_.expects_view_(i, 0, 0)));
             }
 
             for (int i = 0; i < depth(); i++)
             {
-                image.set_region(i * (block_size + 1), 3 * (block_size + 1), block_size, block_size,
+                image.set_region(i * (block_size + 1), block_size + 1, block_size, block_size,
+                    cur_data_slot_.values_view_(i, 0, 0) == 0.0 ? 0 : 255);
+            }
+
+            for (int i = 0; i < depth(); i++)
+            {
+                image.set_region(i * (block_size + 1), 2 * (block_size + 1), block_size, block_size,
                     static_cast<unsigned char>(255.0 * next_data_slot_.expects_view_(i, 0, 0)));
+            }
+
+            for (int i = 0; i < depth(); i++)
+            {
+                image.set_region(i * (block_size + 1), 3 * (block_size + 1), block_size, block_size,
+                    next_data_slot_.values_view_(i, 0, 0) == 0.0 ? 0 : 255);
+            }
+
+            for (int i = 0; i < depth(); i++)
+            {
+                image.set_region(i * (block_size + 1), 4 * (block_size + 1), block_size, block_size,
+                    static_cast<unsigned char>(255.0 * tmp_data_slot_.expects_view_(i, 0, 0)));
+            }
+
+            for (int i = 0; i < depth(); i++)
+            {
+                image.set_region(i * (block_size + 1), 5 * (block_size + 1), block_size, block_size,
+                    tmp_data_slot_.values_view_(i, 0, 0) == 0.0 ? 0 : 255);
             }
 
             for (int i = 0; i < shortterm_memory_num(); i++)
@@ -157,7 +169,7 @@ namespace deep_learning_lib
                 auto memory_slice_view = shortterm_memories_view_[shortterm_memory_index_view_[i]];
                 for (int j = 0; j < depth(); j++)
                 {
-                    image.set_region(j * (block_size + 1), (6 + i) * (block_size + 1), block_size, block_size,
+                    image.set_region(j * (block_size + 1), (8 + i) * (block_size + 1), block_size, block_size,
                         static_cast<unsigned char>(255.0 * memory_slice_view(j, 0, 0)));
                 }
             }
@@ -165,7 +177,7 @@ namespace deep_learning_lib
         else
         {
             image.setwidth_height(depth() * (width() + 1) * (block_size + 1),
-                ((4 + shortterm_memory_num()) * (height() + 1) + 2) * (block_size + 1), true);
+                ((6 + shortterm_memory_num()) * (height() + 1) + 2) * (block_size + 1), true);
             for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
             {
                 for (int height_idx = 0; height_idx < height(); height_idx++)
@@ -174,32 +186,6 @@ namespace deep_learning_lib
                     {
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
                             height_idx * (block_size + 1), block_size, block_size,
-                            cur_data_slot_.values_view_(depth_idx, height_idx, width_idx) == 0.0 ? 0 : 255);
-                    }
-                }
-            }
-
-            for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
-            {
-                for (int height_idx = 0; height_idx < height(); height_idx++)
-                {
-                    for (int width_idx = 0; width_idx < width(); width_idx++)
-                    {
-                        image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
-                            (height() + 1 + height_idx) * (block_size + 1), block_size, block_size,
-                            next_data_slot_.values_view_(depth_idx, height_idx, width_idx) == 0.0 ? 0 : 255);
-                    }
-                }
-            }
-
-            for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
-            {
-                for (int height_idx = 0; height_idx < height(); height_idx++)
-                {
-                    for (int width_idx = 0; width_idx < width(); width_idx++)
-                    {
-                        image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
-                            (2 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
                             static_cast<unsigned char>(255.0 * cur_data_slot_.expects_view_(depth_idx, height_idx, width_idx)));
                     }
                 }
@@ -212,8 +198,60 @@ namespace deep_learning_lib
                     for (int width_idx = 0; width_idx < width(); width_idx++)
                     {
                         image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
-                            (3 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
+                            (height() + 1 + height_idx) * (block_size + 1), block_size, block_size,
+                            cur_data_slot_.values_view_(depth_idx, height_idx, width_idx) == 0.0 ? 0 : 255);
+                    }
+                }
+            }
+
+            for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < height(); height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < width(); width_idx++)
+                    {
+                        image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
+                            (2 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
                             static_cast<unsigned char>(255.0 * next_data_slot_.expects_view_(depth_idx, height_idx, width_idx)));
+                    }
+                }
+            }
+
+            for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < height(); height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < width(); width_idx++)
+                    {
+                        image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
+                            (3 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
+                            next_data_slot_.values_view_(depth_idx, height_idx, width_idx) == 0.0 ? 0 : 255);
+                    }
+                }
+            }
+
+            for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < height(); height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < width(); width_idx++)
+                    {
+                        image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
+                            (4 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
+                            static_cast<unsigned char>(255.0 * tmp_data_slot_.expects_view_(depth_idx, height_idx, width_idx)));
+                    }
+                }
+            }
+
+            for (int depth_idx = 0; depth_idx < depth(); depth_idx++)
+            {
+                for (int height_idx = 0; height_idx < height(); height_idx++)
+                {
+                    for (int width_idx = 0; width_idx < width(); width_idx++)
+                    {
+                        image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
+                            (5 * (height() + 1) + height_idx) * (block_size + 1), block_size, block_size,
+                            tmp_data_slot_.values_view_(depth_idx, height_idx, width_idx) == 0.0 ? 0 : 255);
                     }
                 }
             }
@@ -228,7 +266,7 @@ namespace deep_learning_lib
                         for (int width_idx = 0; width_idx < width(); width_idx++)
                         {
                             image.set_region((depth_idx * (width() + 1) + width_idx) * (block_size + 1),
-                                ((4 + memory_idx) * (height() + 1) + height_idx + 2) * (block_size + 1), block_size, block_size,
+                                ((6 + memory_idx) * (height() + 1) + height_idx + 2) * (block_size + 1), block_size, block_size,
                                 static_cast<unsigned char>(255.0 * memory_slice_view(depth_idx, height_idx, width_idx)));
                         }
                     }
@@ -559,6 +597,8 @@ namespace deep_learning_lib
 
         auto& rand_collection = top_layer.rand_collection_;
 
+        auto tmp_weights = CopyToVector(top_raw_weights);
+
         // Optimization for discriminative input, e.g. short-term memory and hidden layer bias
         // Discriminative inputs only affect the initial value of top_layer weights.
         // Given enough iterations, they do not affect the final value of top_layer weights.
@@ -603,6 +643,10 @@ namespace deep_learning_lib
             top_expects[idx] = expect;
             top_values[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
         });
+
+        auto tmp_weights2 = CopyToVector(top_raw_weights);
+        auto tmp_expects = CopyToVector(top_expects);
+        auto tmp_values = CopyToVector(top_values);
 
         // this two-stage pass-up process seeks the optimal balance between PoE and MoE.
         // i.e. minimum number of bits used to store the information.
@@ -656,6 +700,9 @@ namespace deep_learning_lib
                 top_expects[idx] = expect;
                 top_values[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
             });
+
+            bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");
+            auto top_expects2 = CopyToVector(top_expects);
         }
     }
 
