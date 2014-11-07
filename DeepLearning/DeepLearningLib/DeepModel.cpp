@@ -597,7 +597,7 @@ namespace deep_learning_lib
 
         auto& rand_collection = top_layer.rand_collection_;
 
-        auto tmp_weights = CopyToVector(top_raw_weights);
+        //auto tmp_weights = CopyToVector(top_raw_weights);
 
         // Optimization for discriminative input, e.g. short-term memory and hidden layer bias
         // Discriminative inputs only affect the initial value of top_layer weights.
@@ -644,9 +644,12 @@ namespace deep_learning_lib
             top_values[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
         });
 
-        auto tmp_weights2 = CopyToVector(top_raw_weights);
-        auto tmp_expects = CopyToVector(top_expects);
-        auto tmp_values = CopyToVector(top_values);
+        //auto tmp_weights2 = CopyToVector(top_raw_weights);
+        //auto tmp_expects = CopyToVector(top_expects);
+        //auto tmp_values = CopyToVector(top_values);
+
+        //auto vbias = CopyToVector(this->vbias_view_);
+        //auto hbias = CopyToVector(this->hbias_view_);
 
         // this two-stage pass-up process seeks the optimal balance between PoE and MoE.
         // i.e. minimum number of bits used to store the information.
@@ -701,8 +704,10 @@ namespace deep_learning_lib
                 top_values[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
             });
 
-            bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");
-            auto top_expects2 = CopyToVector(top_expects);
+            //bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");
+            //auto top_expects2 = CopyToVector(top_expects);
+
+            //auto bottom_tmp_expects = CopyToVector(bottom_layer.tmp_data_slot_.expects_view_);
         }
     }
 
