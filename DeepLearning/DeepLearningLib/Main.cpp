@@ -97,7 +97,7 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(500, 16, 16);
+    model.AddConvolveLayer(250, 16, 16);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
@@ -116,8 +116,8 @@ void TestUSPS()
         }
         /*if (i % 5000 == 0)
         {
-            auto precision = model.Evaluate(test_data, test_labels, 0);
-            cout << "P = " << precision << endl;
+            auto result = model.Evaluate(test_data, test_labels, 0);
+            cout << "P = " << result.first << endl;
         }*/
     }
 
