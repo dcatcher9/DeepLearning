@@ -206,7 +206,7 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        const int kPassUpIteration = 10;
+        const int kInferIteration = 10;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -242,17 +242,22 @@ namespace deep_learning_lib
             return neuron_weights_view_.extent[3];
         }
 
-        void PassUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type,
-            OutputLayer* output_layer = nullptr, DataSlotType output_slot_type = DataSlotType::kInvalid) const;
+        // init top layer with discriminative inputs
+        void InitContext(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
+
+        // simple pass up
+        void PassUp(DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
-            DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            OutputLayer* output_layer = nullptr, DataSlotType output_slot_type = DataSlotType::kInvalid) const;
+            DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
 
-        // generative or discriminative training
-        void Train(const DataLayer& bottom_layer, const DataLayer& top_layer, double learning_rate,
-            OutputLayer* output_layer = nullptr, bool discriminative_training = false);
+        // multiple iterations of pass up and down to infer the best latent states for input
+        void InferUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
+
+        void Train(DataLayer& bottom_layer, DataLayer& top_layer, double learning_rate);
 
         void RandomizeParams(unsigned int seed);
 
