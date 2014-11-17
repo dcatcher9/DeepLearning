@@ -114,11 +114,11 @@ void TestUSPS()
         {
             model.GenerateImages("model_dump");
         }
-        /*if (i % 5000 == 0)
+        if (i % 5000 == 0)
         {
             auto result = model.Evaluate(test_data, test_labels, 0);
             cout << "P = " << result.first << endl;
-        }*/
+        }
     }
 
     const auto& train_eval_result = model.Evaluate(train_data, train_labels, 0);

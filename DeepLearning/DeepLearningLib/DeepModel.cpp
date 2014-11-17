@@ -672,6 +672,7 @@ namespace deep_learning_lib
             }
 
             //raw_weight = raw_weight * 0.9 + weight_delta;
+            raw_weight += weight_delta;
 
             auto expect = 1.0 / (1.0 + exp(-raw_weight));
             top_expects[idx] = expect;
@@ -689,13 +690,6 @@ namespace deep_learning_lib
 
         InitContext(bottom_layer, bottom_slot_type, top_layer, top_slot_type);
 
-        //auto tmp_weights2 = CopyToVector(top_raw_weights);
-        //auto tmp_expects = CopyToVector(top_expects);
-        //auto tmp_values = CopyToVector(top_values);
-
-        //auto vbias = CopyToVector(this->vbias_view_);
-        //auto hbias = CopyToVector(this->hbias_view_);
-
         // this two-stage pass-up process seeks the optimal balance between PoE and MoE.
         // i.e. minimum number of bits used to store the information.
         for (int iter = 0; iter < kInferIteration; iter++)
@@ -706,9 +700,6 @@ namespace deep_learning_lib
             PassUp(bottom_layer, bottom_slot_type, DataSlotType::kTemp, top_layer, top_slot_type);
 
             //bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");
-            //auto top_expects2 = CopyToVector(top_expects);
-
-            //auto bottom_tmp_expects = CopyToVector(bottom_layer.tmp_data_slot_.expects_view_);
         }
     }
 
@@ -821,17 +812,46 @@ namespace deep_learning_lib
 
         InitContext(bottom_layer, DataSlotType::kCurrent, top_layer, DataSlotType::kTemp);
 
+        /*auto top_values_tmp = CopyToVector(top_layer.cur_data_slot_.values_view_);
+        auto top_expects_tmp = CopyToVector(top_layer.cur_data_slot_.expects_view_);
+        auto top_weights_tmp = CopyToVector(top_layer.cur_data_slot_.raw_weights_view_);
+
+        auto top_values_tmp2 = CopyToVector(top_layer.tmp_data_slot_.values_view_);
+        auto top_expects_tmp2 = CopyToVector(top_layer.tmp_data_slot_.expects_view_);
+        auto top_weights_tmp2 = CopyToVector(top_layer.tmp_data_slot_.raw_weights_view_);
+
+        auto conv_hbias_tmp = CopyToVector(this->hbias_view_);
+        auto conv_vbias_tmp = CopyToVector(this->vbias_view_);*/
+
         for (int iter = 0; iter < kInferIteration; iter++)
         {
             PassDown(top_layer, DataSlotType::kTemp, bottom_layer, DataSlotType::kTemp);
 
+            /*auto bottom_values_tmp = CopyToVector(bottom_layer.tmp_data_slot_.values_view_);
+            auto bottom_expects_tmp = CopyToVector(bottom_layer.tmp_data_slot_.expects_view_);
+            auto bottom_weights_tmp = CopyToVector(bottom_layer.tmp_data_slot_.raw_weights_view_);*/
+
             top_layer.tmp_data_slot_.raw_weights_view_.copy_to(top_layer.cur_data_slot_.raw_weights_view_);
             PassUp(bottom_layer, DataSlotType::kCurrent, DataSlotType::kTemp, top_layer, DataSlotType::kCurrent);
 
+           /* auto top_values_tmp3 = CopyToVector(top_layer.cur_data_slot_.values_view_);
+            auto top_expects_tmp3 = CopyToVector(top_layer.cur_data_slot_.expects_view_);
+            auto top_weights_tmp3 = CopyToVector(top_layer.cur_data_slot_.raw_weights_view_);*/
+
             PassDown(top_layer, DataSlotType::kCurrent, bottom_layer, DataSlotType::kNext);
+
+            /*auto bottom_values_tmp2 = CopyToVector(bottom_layer.next_data_slot_.values_view_);
+            auto bottom_expects_tmp2 = CopyToVector(bottom_layer.next_data_slot_.expects_view_);
+            auto bottom_weights_tmp2 = CopyToVector(bottom_layer.next_data_slot_.raw_weights_view_);*/
 
             top_layer.tmp_data_slot_.raw_weights_view_.copy_to(top_layer.next_data_slot_.raw_weights_view_);
             PassUp(bottom_layer, DataSlotType::kNext, DataSlotType::kTemp, top_layer, DataSlotType::kNext);
+
+            /*auto top_values_tmp4 = CopyToVector(top_layer.next_data_slot_.values_view_);
+            auto top_expects_tmp4 = CopyToVector(top_layer.next_data_slot_.expects_view_);
+            auto top_weights_tmp4 = CopyToVector(top_layer.next_data_slot_.raw_weights_view_);
+
+            bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");*/
 
             // non-tiled version
             parallel_for_each(make_extent(neuron_num(), bottom_depth, neuron_height(), neuron_width()), [=](index<4> idx) restrict(amp)
@@ -1318,6 +1338,7 @@ namespace deep_learning_lib
 
         // train with contrastive divergence (CD) algorithm to maximize likelihood on dataset
         top_data_layer.Clear(DataSlotType::kCurrent);
+        top_data_layer.Clear(DataSlotType::kTemp);
         bottom_data_layer.SetValue(data);
 
         conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate);
