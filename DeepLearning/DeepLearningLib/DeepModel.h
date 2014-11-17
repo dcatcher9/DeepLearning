@@ -183,11 +183,13 @@ namespace deep_learning_lib
 
         void SetLabel(const int label);
 
+        void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type, DataSlotType output_slot_type);
+
+        void Train(const DataLayer& top_layer, double learning_rate);
+
         void RandomizeParams(unsigned int seed);
 
         int PredictLabel(DataLayer& bottom_layer, DataLayer& top_layer, const ConvolveLayer& conv_layer);
-
-        void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type, DataSlotType output_slot_type);
 
         bitmap_image GenerateImage() const;
     };
