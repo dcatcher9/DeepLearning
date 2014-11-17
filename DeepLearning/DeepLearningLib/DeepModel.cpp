@@ -67,7 +67,7 @@ namespace deep_learning_lib
 
         // Copy the data
         copy(data.begin(), data.end(), cur_data_slot_.values_view_);
-        fill(cur_data_slot_.expects_view_, 0.0);
+        cur_data_slot_.values_view_.copy_to(cur_data_slot_.expects_view_);
         fill(cur_data_slot_.raw_weights_view_, 0.0);
     }
 
@@ -1114,7 +1114,7 @@ namespace deep_learning_lib
                     auto value = bottom_values(idx[0], idx[1] * block_height + height_idx, idx[2] * block_width + width_idx);
                     auto expect = bottom_expects(idx[0], idx[1] * block_height + height_idx, idx[2] * block_width + width_idx);
 
-                    max_value = fmax(max_value, value);
+                    max_value = concurrency::precise_math::fmax(max_value, value);
                     max_expect *= (1.0 - expect); // the probability that all nodes are 0
                 }
             }
@@ -1265,7 +1265,7 @@ namespace deep_learning_lib
             if (layer_stack_[layer_idx].first == LayerType::kConvolveLayer)
             {
                 const auto& conv_layer = convolve_layers_[layer_stack_[layer_idx].second];
-                conv_layer.PassUp(bottom_data_layer, DataSlotType::kCurrent, top_data_layer, DataSlotType::kCurrent);
+                conv_layer.InferUp(bottom_data_layer, DataSlotType::kCurrent, top_data_layer, DataSlotType::kCurrent);
             }
             else
             {
@@ -1305,8 +1305,7 @@ namespace deep_learning_lib
         }
     }
 
-    double DeepModel::TrainLayer(const vector<double>& data, int layer_idx,
-        double learning_rate, const int label, bool discriminative_training)
+    double DeepModel::TrainLayer(const vector<double>& data, int layer_idx, double learning_rate, const int label)
     {
         assert(layer_stack_[layer_idx].first == LayerType::kConvolveLayer);
         assert(layer_idx >= 1 && layer_stack_[layer_idx - 1].first == LayerType::kDataLayer);
@@ -1321,56 +1320,19 @@ namespace deep_learning_lib
         top_data_layer.Clear(DataSlotType::kCurrent);
         bottom_data_layer.SetValue(data);
 
-        if (label == -1)
-        {
-            // purely generative training without label
-            // up
-            conv_layer.PassUp(bottom_data_layer, DataSlotType::kCurrent, top_data_layer, DataSlotType::kCurrent);
+        conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate);
 
-            //down
-            conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent, bottom_data_layer, DataSlotType::kNext);
-
-            top_data_layer.Clear(DataSlotType::kNext);
-            //up
-            conv_layer.PassUp(bottom_data_layer, DataSlotType::kNext, top_data_layer, DataSlotType::kNext);
-
-            conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate);
-        }
-        else
+        if (label >= 0)
         {
             // training data has label
             auto& output_layer = output_layers_.at(layer_stack_[layer_idx + 1].second);
             output_layer.SetLabel(label);
 
-            // we cannot know the output during prediction, so here we hide output from the model
-            conv_layer.PassUp(bottom_data_layer, DataSlotType::kCurrent, top_data_layer, DataSlotType::kCurrent);
-
-            if (discriminative_training)
-            {
-                // not clear how to handle discriminative training
-                assert(false);
-                // TODO: support discriminative memory
-                output_layer.PassDown(top_data_layer, DataSlotType::kCurrent, DataSlotType::kNext);
-
-                top_data_layer.Clear(DataSlotType::kNext);
-
-                conv_layer.PassUp(bottom_data_layer, DataSlotType::kCurrent,
-                    top_data_layer, DataSlotType::kNext, &output_layer, DataSlotType::kNext);
-            }
-            else
-            {
-                conv_layer.PassDown(top_data_layer, DataSlotType::kCurrent,
-                    bottom_data_layer, DataSlotType::kNext, &output_layer, DataSlotType::kNext);
-
-                top_data_layer.Clear(DataSlotType::kNext);
-
-                conv_layer.PassUp(bottom_data_layer, DataSlotType::kNext, top_data_layer, DataSlotType::kNext);
-            }
-
-            conv_layer.Train(bottom_data_layer, top_data_layer, learning_rate, &output_layer, discriminative_training);
+            output_layer.PassDown(top_data_layer, DataSlotType::kCurrent, DataSlotType::kNext);
+            output_layer.Train(top_data_layer, learning_rate);
         }
 
-        // update shortterm memory
+        // update short-term memory
         bottom_data_layer.Memorize();
 
         return bottom_data_layer.ReconstructionError(DataSlotType::kNext);

@@ -318,7 +318,7 @@ namespace deep_learning_lib
         void PassDown();
 
         double TrainLayer(const std::vector<double>& data, int layer_idx,
-            double learning_rate, const int label = -1, bool discriminative_training = false);
+            double learning_rate, const int label = -1);
 
         int PredictLabel(const std::vector<double>& data, const int layer_idx);
 
