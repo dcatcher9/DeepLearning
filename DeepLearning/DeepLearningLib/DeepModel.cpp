@@ -639,7 +639,8 @@ namespace deep_learning_lib
         const int bottom_depth = bottom_layer.depth();
 
         array_view<const double, 3> bottom_data_values = bottom_layer[bottom_data_slot_type].values_view_;
-        array_view<const double, 3> bottom_model_expects = bottom_layer[bottom_model_slot_type].expects_view_;
+        //array_view<const double, 3> bottom_model_expects = bottom_layer[bottom_model_slot_type].expects_view_;
+        array_view<const double, 3> bottom_model_expects = bottom_layer[bottom_model_slot_type].values_view_;
 
         auto& rand_collection = top_layer.rand_collection_;
 
@@ -797,9 +798,12 @@ namespace deep_learning_lib
         const int bottom_width = bottom_layer.width();
         const int shortterm_memory_num = bottom_layer.shortterm_memory_num();
 
-        array_view<const double, 3> bottom_expects = bottom_layer.cur_data_slot_.expects_view_;
+        /*array_view<const double, 3> bottom_expects = bottom_layer.cur_data_slot_.expects_view_;
         array_view<const double, 3> bottom_next_expects = bottom_layer.next_data_slot_.expects_view_;
-        array_view<const double, 3> bottom_tmp_expects = bottom_layer.tmp_data_slot_.expects_view_;
+        array_view<const double, 3> bottom_tmp_expects = bottom_layer.tmp_data_slot_.expects_view_;*/
+        array_view<const double, 3> bottom_expects = bottom_layer.cur_data_slot_.values_view_;
+        array_view<const double, 3> bottom_next_expects = bottom_layer.next_data_slot_.values_view_;
+        array_view<const double, 3> bottom_tmp_expects = bottom_layer.tmp_data_slot_.values_view_;
         array_view<const double, 4> bottom_shortterm_memories = bottom_layer.shortterm_memories_view_;
         array_view<const int> bottom_shortterm_memory_index = bottom_layer.shortterm_memory_index_view_;
 
@@ -854,7 +858,8 @@ namespace deep_learning_lib
             bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");*/
 
             // non-tiled version
-            parallel_for_each(make_extent(neuron_num(), bottom_depth, neuron_height(), neuron_width()), [=](index<4> idx) restrict(amp)
+            parallel_for_each(make_extent(neuron_num(), bottom_depth, neuron_height(), neuron_width()), 
+                [=](index<4> idx) restrict(amp)
             {
                 auto delta = 0.0;
 

@@ -208,7 +208,7 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        const int kInferIteration = 10;
+        const int kInferIteration = 1;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
