@@ -203,12 +203,13 @@ namespace deep_learning_lib
     private:
         // parameters we need to learn
         std::vector<double> neuron_weights_;
-        
+
         // bias for visible nodes, i.e. bottom nodes
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
         const int kInferIteration = 1;
+        const double kRawWeightDecay = 0.1;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -246,18 +247,18 @@ namespace deep_learning_lib
 
         // init top layer with discriminative inputs
         void InitContext(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type) const;
+                         DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         // simple pass up
         void PassUp(DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type) const;
+                    DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
-            DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
+                      DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
 
         // multiple iterations of pass up and down to infer the best latent states for input
         void InferUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type) const;
+                     DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void Train(DataLayer& bottom_layer, DataLayer& top_layer, double learning_rate);
 
@@ -291,10 +292,10 @@ namespace deep_learning_lib
         }
 
         void PassUp(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type) const;
+                    DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
-            DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
+                      DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
     };
 
     class DeepModel
@@ -318,12 +319,12 @@ namespace deep_learning_lib
         void PassDown();
 
         double TrainLayer(const std::vector<double>& data, int layer_idx,
-            double learning_rate, const int label = -1);
+                          double learning_rate, const int label = -1);
 
         int PredictLabel(const std::vector<double>& data, const int layer_idx);
 
         std::pair<double, std::vector<std::tuple<int, int, int>>> Evaluate(const std::vector<const std::vector<double>>& dataset,
-            const std::vector<const int>& labels, int layer_idx);
+                                                                           const std::vector<const int>& labels, int layer_idx);
 
         void GenerateImages(const std::string& folder) const;
 

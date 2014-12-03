@@ -618,7 +618,7 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::PassUp(DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-        DataLayer& top_layer, DataSlotType top_slot_type) const
+                               DataLayer& top_layer, DataSlotType top_slot_type) const
     {
         // neuron layer
         const int neuron_height = this->neuron_height();
@@ -639,10 +639,10 @@ namespace deep_learning_lib
         const int bottom_depth = bottom_layer.depth();
 
         array_view<const double, 3> bottom_data_values = bottom_layer[bottom_data_slot_type].values_view_;
-        //array_view<const double, 3> bottom_model_expects = bottom_layer[bottom_model_slot_type].expects_view_;
-        array_view<const double, 3> bottom_model_expects = bottom_layer[bottom_model_slot_type].values_view_;
+        array_view<const double, 3> bottom_model_expects = bottom_layer[bottom_model_slot_type].expects_view_;
 
         auto& rand_collection = top_layer.rand_collection_;
+        const double rawWeightDecay = this->kRawWeightDecay;
 
         // pass up the DIFFERENCE between model and data
         // non-tiled version
@@ -672,8 +672,7 @@ namespace deep_learning_lib
                 }
             }
 
-            //raw_weight = raw_weight * 0.9 + weight_delta;
-            raw_weight += weight_delta;
+            raw_weight += weight_delta - rawWeightDecay;
 
             auto expect = 1.0 / (1.0 + exp(-raw_weight));
             top_expects[idx] = expect;
