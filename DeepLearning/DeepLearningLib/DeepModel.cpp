@@ -526,20 +526,26 @@ namespace deep_learning_lib
     ConvolveLayer::ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width)
         : neuron_weights_(neuron_num * neuron_depth * neuron_height * neuron_width),
         neuron_weights_view_(make_extent(neuron_num, neuron_depth, neuron_height, neuron_width), neuron_weights_),
+        neuron_weights_delta_view_(neuron_weights_view_.extent),
         vbias_(neuron_depth),
         vbias_view_(neuron_depth, vbias_),
+        vbias_delta_view_(vbias_view_.extent),
         hbias_(neuron_num),
-        hbias_view_(neuron_num, hbias_)
+        hbias_view_(neuron_num, hbias_),
+        hbias_delta_view_(hbias_view_)
     {
     }
 
     ConvolveLayer::ConvolveLayer(ConvolveLayer&& other)
         : neuron_weights_(move(other.neuron_weights_)),
         neuron_weights_view_(other.neuron_weights_view_),
+        neuron_weights_delta_view_(other.neuron_weights_delta_view_),
         vbias_(move(other.vbias_)),
         vbias_view_(other.vbias_view_),
+        vbias_delta_view_(other.vbias_delta_view_),
         hbias_(move(other.hbias_)),
-        hbias_view_(other.hbias_view_)
+        hbias_view_(other.hbias_view_),
+        hbias_delta_view_(other.hbias_delta_view_)
     {
     }
 

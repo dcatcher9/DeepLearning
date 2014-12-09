@@ -219,6 +219,11 @@ namespace deep_learning_lib
         concurrency::array_view<double> vbias_view_;
         concurrency::array_view<double> hbias_view_;
 
+        // used for accumulating training update.
+        concurrency::array_view<double, 4> neuron_weights_delta_view_;
+        concurrency::array_view<double> vbias_delta_view_;
+        concurrency::array_view<double> hbias_delta_view_;
+
     public:
         explicit ConvolveLayer(int neuron_num, int neuron_depth, int neuron_height, int neuron_width);
         // Disable copy constructor
