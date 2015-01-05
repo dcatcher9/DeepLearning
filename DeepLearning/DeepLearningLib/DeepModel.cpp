@@ -594,28 +594,30 @@ namespace deep_learning_lib
 
             raw_weight += conv_hbias[top_depth_idx];
 
-            if (shortterm_memory_num > 0)
-            {
-                const auto& current_neuron = conv_neuron_weights[top_depth_idx];
+            // DISABLE SHORT-TERM MEMORY
 
-                // convolve short-term memory in bottom layer if exists.
-                for (int memory_idx = 0; memory_idx < shortterm_memory_num; memory_idx++)
-                {
-                    const auto& cur_bottom_memory = bottom_shortterm_memories[bottom_shortterm_memory_index[memory_idx]];
+            //if (shortterm_memory_num > 0)
+            //{
+            //    const auto& current_neuron = conv_neuron_weights[top_depth_idx];
 
-                    for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
-                    {
-                        for (int height_idx = 0; height_idx < neuron_height; height_idx++)
-                        {
-                            for (int width_idx = 0; width_idx < neuron_width; width_idx++)
-                            {
-                                raw_weight += cur_bottom_memory(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx)
-                                    * current_neuron(bottom_depth * (1 + memory_idx) + depth_idx, height_idx, width_idx);
-                            }
-                        }
-                    }
-                }
-            }
+            //    // convolve short-term memory in bottom layer if exists.
+            //    for (int memory_idx = 0; memory_idx < shortterm_memory_num; memory_idx++)
+            //    {
+            //        const auto& cur_bottom_memory = bottom_shortterm_memories[bottom_shortterm_memory_index[memory_idx]];
+
+            //        for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
+            //        {
+            //            for (int height_idx = 0; height_idx < neuron_height; height_idx++)
+            //            {
+            //                for (int width_idx = 0; width_idx < neuron_width; width_idx++)
+            //                {
+            //                    raw_weight += cur_bottom_memory(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx)
+            //                        * current_neuron(bottom_depth * (1 + memory_idx) + depth_idx, height_idx, width_idx);
+            //                }
+            //            }
+            //        }
+            //    }
+            //}
 
             auto expect = 1.0 / (1.0 + exp(-raw_weight));
             top_expects[idx] = expect;
@@ -896,43 +898,43 @@ namespace deep_learning_lib
                 conv_neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
             });
 
-            if (shortterm_memory_num > 0)
-            {
-                // short-term memory is treated as discriminative input like hbias
-                parallel_for_each(make_extent(neuron_num(), bottom_depth * shortterm_memory_num, neuron_height(), neuron_width()),
-                    [=](index<4> idx) restrict(amp)
-                {
-                    auto delta = 0.0;
+            //if (shortterm_memory_num > 0)
+            //{
+            //    // short-term memory is treated as discriminative input like hbias
+            //    parallel_for_each(make_extent(neuron_num(), bottom_depth * shortterm_memory_num, neuron_height(), neuron_width()),
+            //        [=](index<4> idx) restrict(amp)
+            //    {
+            //        auto delta = 0.0;
 
-                    int neuron_idx = idx[0];
-                    int neuron_depth_idx = idx[1];
-                    int neuron_height_idx = idx[2];
-                    int neuron_width_idx = idx[3];
+            //        int neuron_idx = idx[0];
+            //        int neuron_depth_idx = idx[1];
+            //        int neuron_height_idx = idx[2];
+            //        int neuron_width_idx = idx[3];
 
-                    int bottom_depth_idx = neuron_depth_idx % bottom_depth;
-                    int bottom_memory_idx = (neuron_depth_idx - bottom_depth_idx) / bottom_depth;
+            //        int bottom_depth_idx = neuron_depth_idx % bottom_depth;
+            //        int bottom_memory_idx = (neuron_depth_idx - bottom_depth_idx) / bottom_depth;
 
-                    const auto& bottom_memory_values = bottom_shortterm_memories[bottom_shortterm_memory_index[bottom_memory_idx]];
+            //        const auto& bottom_memory_values = bottom_shortterm_memories[bottom_shortterm_memory_index[bottom_memory_idx]];
 
-                    for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-                    {
-                        for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-                        {
-                            index<3> top_idx(neuron_idx, top_height_idx, top_width_idx);
-                            index<3> bottom_idx(bottom_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+            //        for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+            //        {
+            //            for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+            //            {
+            //                index<3> top_idx(neuron_idx, top_height_idx, top_width_idx);
+            //                index<3> bottom_idx(bottom_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
 
-                            auto top_expect = top_expects[top_idx];
-                            auto top_next_expect = top_next_expects[top_idx];
+            //                auto top_expect = top_expects[top_idx];
+            //                auto top_next_expect = top_next_expects[top_idx];
 
-                            auto bottom_value = bottom_memory_values[bottom_idx];
+            //                auto bottom_value = bottom_memory_values[bottom_idx];
 
-                            delta += bottom_value * (top_expect - top_next_expect);
-                        }
-                    }
+            //                delta += bottom_value * (top_expect - top_next_expect);
+            //            }
+            //        }
 
-                    conv_neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
-                });
-            }
+            //        conv_neuron_weights[idx] += delta / (top_height * top_width) * learning_rate;
+            //    });
+            //}
 
             // update vbias, only for generative training and only for bottom value
             // vbias does not cover shortterm memory part
