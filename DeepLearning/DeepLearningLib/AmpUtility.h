@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <amp.h>
+#include <amp_math.h>
 
 namespace deep_learning_lib
 {
@@ -22,6 +23,20 @@ namespace deep_learning_lib
             (*(reinterpret_cast<unsigned int*>(&newVal)))));
 
         return newVal;
+    }
+
+    inline double CalcActivationProb(const double weight) restrict(amp)
+    {
+        /*if (weight <= 0)
+        {
+            return 0;
+        }
+        else
+        {
+            return 2.0 / (1.0 + concurrency::precise_math::exp(-weight)) - 1.0;
+        }*/
+
+        return 1.0 / (1.0 + concurrency::precise_math::exp(-weight));
     }
 
     template<typename T, int Rank>

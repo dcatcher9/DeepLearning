@@ -65,7 +65,7 @@ void TestUSPS()
     while (getline(ifs, line))
     {
         auto bits = split(line, " ", false);
-        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return stod(s); }) >> to_vector();
+        auto data_bits = from(bits) >> take(row_len) >> select([](const string& s){return min(1.0, stod(s)); }) >> to_vector();
         auto label_bits = from(bits) >> skip(row_len) >> select([](const string& s){return stod(s); }) >> to_vector();
 
         if (rand(generator) < train_fraction)
@@ -108,17 +108,23 @@ void TestUSPS()
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        auto err = model.TrainLayer(data, 1, 0.05, label);
-        cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
-        if (i % 1000 == 0)
+
+        //for (int j = 0; j < 10; j++)
+        {
+            auto err = model.TrainLayer(data, 1, 0.05, label);
+            cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
+        }
+
+        if (i % 100 == 0)
         {
             model.GenerateImages("model_dump");
+            model.Dump("model_dump");
         }
-        if (i % 5000 == 0)
+        /*if (i % 1000 == 0)
         {
-            auto result = model.Evaluate(test_data, test_labels, 0);
-            cout << "P = " << result.first << endl;
-        }
+        auto result = model.Evaluate(test_data, test_labels, 0);
+        cout << "P = " << result.first << endl;
+        }*/
     }
 
     const auto& train_eval_result = model.Evaluate(train_data, train_labels, 0);
@@ -129,6 +135,7 @@ void TestUSPS()
 
 
     model.GenerateImages("model_dump");
+    model.Dump("model_dump");
 }
 
 void TestRBM()
@@ -208,11 +215,11 @@ void TestRBM()
         const auto label = train_labels[idx];
         auto err = model.TrainLayer(data, 1, 0.05, label);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
-       /* if (i % 50 == 0)
-        {
-            auto precision = model.Evaluate(test_data, test_labels, 0);
-            cout << "P = " << precision << endl;
-        }*/
+        /* if (i % 50 == 0)
+         {
+         auto precision = model.Evaluate(test_data, test_labels, 0);
+         cout << "P = " << precision << endl;
+         }*/
     }
 
     const auto& train_eval_result = model.Evaluate(train_data, train_labels, 0);

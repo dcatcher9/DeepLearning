@@ -3,6 +3,8 @@
 #include <vector>
 #include <unordered_map>
 #include <random>
+#include <string>
+#include <fstream>
 
 // for random number generator on GPU
 #include "amp_tinymt_rng.h"
@@ -16,7 +18,7 @@ namespace deep_learning_lib
     {
         kCurrent,
         kNext,
-        kTemp,
+        kContext,
         kInvalid
     };
 
@@ -37,9 +39,6 @@ namespace deep_learning_lib
     // time dimension is for short-term memory.
     class DataLayer
     {
-    private:
-        int shortterm_memory_num_ = 0;
-
     public:
         struct DataSlot
         {
@@ -48,29 +47,26 @@ namespace deep_learning_lib
             // raw weights before neuron activation
             // [depth_idx = neuron_idx, height_idx, width_idx]
             concurrency::array_view<double, 3> raw_weights_view_;
+            concurrency::array_view<double, 3> delta_view_;
 
             explicit DataSlot(int depth, int height, int width);
+
+            void CopyTo(DataSlot& other) const;
+
+            void Dump(std::ofstream& ofs) const;
         };
 
     public:
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
-        DataSlot tmp_data_slot_;
-
-        // short term memory view
-        concurrency::array_view<double, 4> shortterm_memories_view_;
-        // index into shortterm memory in temporal order.
-        concurrency::array_view<int, 1> shortterm_memory_index_view_;
+        DataSlot context_data_slot_;
 
         tinymt_collection<3> rand_collection_;
 
     public:
-        explicit DataLayer(int shortterm_memory_num, int depth, int height, int width, int seed = 0);
-
-        inline int shortterm_memory_num() const
-        {
-            return shortterm_memory_num_;
-        }
+        explicit DataLayer(int depth, int height, int width, int seed = 0);
+        // Disable copy constructor
+        //DataLayer(const DataLayer&) = delete;
 
         inline int depth() const
         {
@@ -95,8 +91,8 @@ namespace deep_learning_lib
                 return cur_data_slot_;
             case DataSlotType::kNext:
                 return next_data_slot_;
-            case DataSlotType::kTemp:
-                return tmp_data_slot_;
+            case DataSlotType::kContext:
+                return context_data_slot_;
             default:
                 throw("Invalid data slot type for data layer.");
             }
@@ -106,12 +102,11 @@ namespace deep_learning_lib
 
         void Clear(DataSlotType slot_type);
 
-        // store current value into shortterm memory.
-        void Memorize();
-
         float ReconstructionError(DataSlotType slot_type) const;
 
         bitmap_image GenerateImage() const;
+
+        void Dump(const std::string& filename) const;
     };
 
     // Currently support 1-of-N classifier output.
@@ -135,7 +130,7 @@ namespace deep_learning_lib
     public:
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
-        DataSlot tmp_data_slot_;
+        DataSlot context_data_slot_;
 
         concurrency::array_view<double> bias_view_;
         concurrency::array_view<double, 4> neuron_weights_view_;
@@ -174,8 +169,8 @@ namespace deep_learning_lib
                 return cur_data_slot_;
             case DataSlotType::kNext:
                 return next_data_slot_;
-            case DataSlotType::kTemp:
-                return tmp_data_slot_;
+            case DataSlotType::kContext:
+                return context_data_slot_;
             default:
                 throw("Invalid data slot type for output layer.");
             }
@@ -192,6 +187,8 @@ namespace deep_learning_lib
         int PredictLabel(DataLayer& bottom_layer, DataLayer& top_layer, const ConvolveLayer& conv_layer);
 
         bitmap_image GenerateImage() const;
+
+        void Dump(const std::string& filename) const;
     };
 
     // Contains a collection of neurons, which is 4-dimensional according to data layer.
@@ -201,6 +198,7 @@ namespace deep_learning_lib
     class ConvolveLayer
     {
     private:
+        int batch_size_ = 0;
         // parameters we need to learn
         std::vector<double> neuron_weights_;
 
@@ -208,8 +206,8 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        const int kInferIteration = 1;
-        const double kRawWeightDecay = 0.1;
+        const int kInferIteration = 5;
+        const double kRawWeightDecay = 0.0;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -230,6 +228,10 @@ namespace deep_learning_lib
         ConvolveLayer(const ConvolveLayer&) = delete;
         ConvolveLayer(ConvolveLayer&& other);
 
+        inline int batch_size() const
+        {
+            return batch_size_;
+        }
         inline int neuron_num() const
         {
             return neuron_weights_view_.extent[0];
@@ -250,26 +252,29 @@ namespace deep_learning_lib
             return neuron_weights_view_.extent[3];
         }
 
-        // init top layer with discriminative inputs
-        void InitContext(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-                         DataLayer& top_layer, DataSlotType top_slot_type) const;
+        // initialize context 
+        void InitContext(DataLayer& bottom_layer, DataLayer& top_layer) const;
 
         // simple pass up
-        void PassUp(DataLayer& bottom_layer, DataSlotType bottom_data_slot_type, DataSlotType bottom_model_slot_type,
-                    DataLayer& top_layer, DataSlotType top_slot_type) const;
+        void PassUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
-                      DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
+            DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
 
         // multiple iterations of pass up and down to infer the best latent states for input
         void InferUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-                     DataLayer& top_layer, DataSlotType top_slot_type) const;
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void Train(DataLayer& bottom_layer, DataLayer& top_layer, double learning_rate);
 
         void RandomizeParams(unsigned int seed);
 
+        void ApplyGradients();
+
         bitmap_image GenerateImage() const;
+
+        void Dump(const std::string& filename) const;
     };
 
     // Pooling layer after convolution, no params. 
@@ -297,10 +302,10 @@ namespace deep_learning_lib
         }
 
         void PassUp(const DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-                    DataLayer& top_layer, DataSlotType top_slot_type) const;
+            DataLayer& top_layer, DataSlotType top_slot_type) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
-                      DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
+            DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;
     };
 
     class DeepModel
@@ -311,9 +316,9 @@ namespace deep_learning_lib
         DeepModel(const DeepModel&) = delete;
 
         // only used for adding the first data layer
-        void AddDataLayer(int depth, int height, int width, int shortterm_memory_num = 0);
+        void AddDataLayer(int depth, int height, int width);
         // deduce the parameters from the convolve layer below
-        void AddDataLayer(int shortterm_memory_num = 0);
+        void AddDataLayer();
 
         // deduce the parameters from the data layer below
         void AddConvolveLayer(int neuron_num, int neuron_height, int neuron_width);
@@ -324,14 +329,16 @@ namespace deep_learning_lib
         void PassDown();
 
         double TrainLayer(const std::vector<double>& data, int layer_idx,
-                          double learning_rate, const int label = -1);
+            double learning_rate, const int label = -1);
 
         int PredictLabel(const std::vector<double>& data, const int layer_idx);
 
         std::pair<double, std::vector<std::tuple<int, int, int>>> Evaluate(const std::vector<const std::vector<double>>& dataset,
-                                                                           const std::vector<const int>& labels, int layer_idx);
+            const std::vector<const int>& labels, int layer_idx);
 
         void GenerateImages(const std::string& folder) const;
+
+        void Dump(const std::string& folder) const;
 
     private:
         enum class LayerType
