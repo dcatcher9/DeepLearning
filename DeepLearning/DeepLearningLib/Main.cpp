@@ -111,7 +111,7 @@ void TestUSPS()
 
         //for (int j = 0; j < 10; j++)
         {
-            auto err = model.TrainLayer(data, 1, 0.05, label);
+            auto err = model.TrainLayer(data, 1, 0.1, label);
             cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
         }
 

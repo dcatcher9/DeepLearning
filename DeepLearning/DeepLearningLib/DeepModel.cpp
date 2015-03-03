@@ -957,9 +957,12 @@ namespace deep_learning_lib
         const int bottom_height = bottom_layer.height();
         const int bottom_width = bottom_layer.width();
 
-        array_view<const double, 3> bottom_context_expects = bottom_layer.context_data_slot_.expects_view_;
+        
         array_view<const double, 3> bottom_expects = bottom_layer.cur_data_slot_.expects_view_;
         array_view<const double, 3> bottom_next_expects = bottom_layer.next_data_slot_.expects_view_;
+        array_view<const double, 3> bottom_next_raw_weights = bottom_layer.next_data_slot_.raw_weights_view_;
+        array_view<const double, 3> bottom_context_expects = bottom_layer.context_data_slot_.expects_view_;
+        array_view<const double, 3> bottom_context_raw_weights = bottom_layer.context_data_slot_.raw_weights_view_;
 
         // neuron layer
         // parameters to train
@@ -972,7 +975,7 @@ namespace deep_learning_lib
         array_view<double> conv_vbias_delta = this->vbias_view_;
         array_view<double> conv_hbias_delta = this->hbias_view_;*/
 
-        //array_view<const double, 4> conv_neuron_weights = this->neuron_weights_view_;
+        array_view<const double, 4> conv_neuron_weights = this->neuron_weights_view_;
 
         InitContext(bottom_layer, top_layer);
 
@@ -1031,6 +1034,8 @@ namespace deep_learning_lib
             int neuron_height_idx = idx[2];
             int neuron_width_idx = idx[3];
 
+            auto neuron_weight = conv_neuron_weights[idx];
+
             for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
             {
                 for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
@@ -1038,17 +1043,17 @@ namespace deep_learning_lib
                     index<3> top_idx(neuron_idx, top_height_idx, top_width_idx);
                     index<3> bottom_idx(bottom_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
 
-                    //auto top_context_expect = top_context_expects[top_idx];
                     auto top_expect = top_expects[top_idx];
                     auto top_next_expect = top_next_expects[top_idx];
 
-                    //auto bottom_context_expect = bottom_context_expects[bottom_idx];
                     auto bottom_expect = bottom_expects[bottom_idx];
                     auto bottom_next_expect = bottom_next_expects[bottom_idx];
+                    auto bottom_next_raw_weight = bottom_next_raw_weights[bottom_idx];
+                    auto bottom_context_expect = bottom_context_expects[bottom_idx];
+                    auto bottom_context_raw_weight = bottom_context_raw_weights[bottom_idx];
 
-                    //double step = fmin(fabs(bottom_context_expect - bottom_next_expect), fabs(bottom_expect - bottom_next_expect));
-                    //auto dir = bottom_expect > bottom_next_expect ? 1 : -1;
-                    //delta += dir * step * (top_expect - top_context_expect);
+                    auto credit = fabs(bottom_next_expect - CalcActivationProb(bottom_next_raw_weight - top_expect * neuron_weight));
+                    auto next_credit = fabs(bottom_context_expect - CalcActivationProb(bottom_context_raw_weight - top_next_expect * neuron_weight));
 
                     delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect;
                 }
