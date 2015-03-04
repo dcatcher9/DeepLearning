@@ -759,6 +759,7 @@ namespace deep_learning_lib
         const int bottom_depth = bottom_layer.depth();
 
         array_view<const double, 3> bottom_values = bottom_layer[bottom_slot_type].values_view_;
+        array_view<const double, 3> bottom_expects = bottom_layer[bottom_slot_type].expects_view_;
         array_view<const double, 3> bottom_context_expects = bottom_layer.context_data_slot_.expects_view_;
         array_view<const double, 3> bottom_context_raw_weights = bottom_layer.context_data_slot_.raw_weights_view_;
 
@@ -771,7 +772,8 @@ namespace deep_learning_lib
         parallel_for_each(bottom_deltas.extent,
             [=](index<3> idx) restrict(amp)
         {
-            bottom_deltas[idx] = bottom_values[idx] - bottom_context_expects[idx];
+            //bottom_deltas[idx] = bottom_values[idx] - bottom_context_expects[idx];
+            bottom_deltas[idx] = bottom_expects[idx] - bottom_context_expects[idx];
         });
 
 
@@ -802,6 +804,7 @@ namespace deep_learning_lib
                         index<3> bottom_idx(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx);
 
                         auto data_value = bottom_values[bottom_idx];
+                        auto data_expect = bottom_expects[bottom_idx];
                         auto bottom_context_expect = bottom_context_expects[bottom_idx];
                         auto bottom_context_raw_weight = bottom_context_raw_weights[bottom_idx];
 
@@ -809,26 +812,26 @@ namespace deep_learning_lib
 
                         auto bottom_without_expect = CalcActivationProb(bottom_context_raw_weight - top_context_expect * weight);
 
-                        /*weight_delta += (data_value - bottom_context_expect) * weight;
-                        weight_base += (bottom_context_expect - bottom_without_expect) * weight;*/
-
-                        weight_delta += (data_value - bottom_context_expect) 
+                        /*weight_delta += (data_value - bottom_context_expect) 
+                            * (bottom_context_expect - bottom_without_expect);*/
+                        weight_delta += (data_expect - bottom_context_expect)
                             * (bottom_context_expect - bottom_without_expect);
                     }
                 }
             }
 
             //top_raw_weight = (top_context_raw_weight + weight_delta) * 0.5 + weight_base * 0.5;
-            top_raw_weight = (top_context_raw_weight + weight_delta);
+            //top_raw_weight = (top_context_raw_weight + weight_delta) - top_context_expect * (1.0 - top_context_expect) * rawWeightDecay;
+            top_raw_weight = (top_context_raw_weight + weight_delta) - top_context_expect * rawWeightDecay;
 
-            if (top_raw_weight > rawWeightDecay)
+            /*if (top_raw_weight > rawWeightDecay)
             {
                 top_raw_weight -= rawWeightDecay;
             }
             else if (top_raw_weight < -rawWeightDecay)
             {
                 top_raw_weight += rawWeightDecay;
-            }
+            }*/
 
             auto expect = CalcActivationProb(top_raw_weight);
             top_expects[idx] = expect;
@@ -929,7 +932,8 @@ namespace deep_learning_lib
                     for (int width_idx = width_idx_min; width_idx <= width_idx_max; width_idx++)
                     {
                         int top_width_idx = cur_width_idx - width_idx;
-                        raw_weight += current_neuron(cur_depth_idx, height_idx, width_idx) * 
+                        raw_weight += current_neuron(cur_depth_idx, height_idx, width_idx) *
+                            //top_values(neuron_idx, top_height_idx, top_width_idx);
                             top_expects(neuron_idx, top_height_idx, top_width_idx);
                     }
                 }
@@ -1052,8 +1056,8 @@ namespace deep_learning_lib
                     auto bottom_context_expect = bottom_context_expects[bottom_idx];
                     auto bottom_context_raw_weight = bottom_context_raw_weights[bottom_idx];
 
-                    auto credit = fabs(bottom_next_expect - CalcActivationProb(bottom_next_raw_weight - top_expect * neuron_weight));
-                    auto next_credit = fabs(bottom_context_expect - CalcActivationProb(bottom_context_raw_weight - top_next_expect * neuron_weight));
+                    /*auto credit = fabs(bottom_next_expect - CalcActivationProb(bottom_next_raw_weight - top_expect * neuron_weight));
+                    auto next_credit = fabs(bottom_context_expect - CalcActivationProb(bottom_context_raw_weight - top_next_expect * neuron_weight));*/
 
                     delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect;
                 }
