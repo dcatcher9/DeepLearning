@@ -208,6 +208,7 @@ namespace deep_learning_lib
 
         const int kInferIteration = 10;
         const double kRawWeightDecay = 0.0;
+        const double kActivationDecay = 0.999;
 
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
@@ -216,6 +217,9 @@ namespace deep_learning_lib
         // corresponding to the depth dimension
         concurrency::array_view<double> vbias_view_;
         concurrency::array_view<double> hbias_view_;
+
+        concurrency::array_view<double> activation_view_;
+        double total_activation_count_;
 
         // used for accumulating training update.
         concurrency::array_view<double, 4> neuron_weights_delta_view_;
