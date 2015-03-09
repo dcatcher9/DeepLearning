@@ -97,7 +97,7 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(20, 16, 16);
+    model.AddConvolveLayer(100, 16, 16);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
@@ -115,7 +115,7 @@ void TestUSPS()
             cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
         }
 
-        if (i % 100 == 0)
+        if (i % 10 == 0)
         {
             model.GenerateImages("model_dump");
             model.Dump("model_dump");
