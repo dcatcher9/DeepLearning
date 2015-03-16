@@ -828,7 +828,8 @@ namespace deep_learning_lib
 
             //top_raw_weight = (top_context_raw_weight + weight_delta) * 0.5 + weight_base * 0.5;
             //top_raw_weight = (top_context_raw_weight + weight_delta) - top_context_expect * (1.0 - top_context_expect) * rawWeightDecay;
-            top_raw_weight = (top_context_raw_weight + weight_delta) - (top_context_expect - 0.5) * rawWeightDecay;
+            //top_raw_weight = (top_context_raw_weight + weight_delta) - (top_context_expect - 0.5) * rawWeightDecay;
+            top_raw_weight = (top_context_raw_weight + concurrency::precise_math::fmax(0.0, weight_delta));
 
             /*if (top_raw_weight > rawWeightDecay)
             {
@@ -999,19 +1000,54 @@ namespace deep_learning_lib
         {
             PassUp(bottom_layer, DataSlotType::kCurrent, top_layer, DataSlotType::kCurrent);
 
-            PassDown(top_layer, DataSlotType::kCurrent, bottom_layer, DataSlotType::kContext);
+            PassDown(top_layer, DataSlotType::kCurrent, bottom_layer, DataSlotType::kNext);
 
-            //PassUp(bottom_layer, DataSlotType::kNext, top_layer, DataSlotType::kNext);
+            PassUp(bottom_layer, DataSlotType::kNext, top_layer, DataSlotType::kNext);
 
             /*bottom_layer.GenerateImage().save_image("model_dump\\debug_1_bottom_data_" + std::to_string(iter) + ".bmp");
             top_layer.GenerateImage().save_image("model_dump\\debug_1_top_data_" + std::to_string(iter) + ".bmp");
             bottom_layer.Dump("model_dump\\debug_1_bottom_data_" + std::to_string(iter) + ".txt");
-            top_layer.Dump("model_dump\\debug_1_top_data_" + std::to_string(iter) + ".txt");*/            
+            top_layer.Dump("model_dump\\debug_1_top_data_" + std::to_string(iter) + ".txt");*/  
+
+            // non-tiled version
+            parallel_for_each(conv_neuron_weights_delta.extent, [=](index<4> idx) restrict(amp)
+            {
+                auto delta = 0.0;
+
+                int neuron_idx = idx[0];
+                int bottom_depth_idx = idx[1];
+                int neuron_height_idx = idx[2];
+                int neuron_width_idx = idx[3];
+
+                //auto neuron_weight = conv_neuron_weights[idx];
+
+                for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
+                {
+                    for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
+                    {
+                        index<3> top_idx(neuron_idx, top_height_idx, top_width_idx);
+                        index<3> bottom_idx(bottom_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
+
+                        auto top_expect = top_expects[top_idx];
+                        auto top_next_expect = top_next_expects[top_idx];
+
+                        auto bottom_expect = bottom_expects[bottom_idx];
+                        auto bottom_next_expect = bottom_next_expects[bottom_idx];
+                        /*auto bottom_next_raw_weight = bottom_next_raw_weights[bottom_idx];
+                        auto bottom_context_expect = bottom_context_expects[bottom_idx];
+                        auto bottom_context_raw_weight = bottom_context_raw_weights[bottom_idx];*/
+
+                        delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect;
+                    }
+                }
+
+                conv_neuron_weights_delta[idx] += delta / (top_height * top_width) * learning_rate;
+            });
 
             top_layer.cur_data_slot_.CopyTo(top_layer.context_data_slot_);
-            //bottom_layer.next_data_slot_.CopyTo(bottom_layer.context_data_slot_);
+            bottom_layer.next_data_slot_.CopyTo(bottom_layer.context_data_slot_);
 
-            std::cout << "debug 1: " << iter << " = " << bottom_layer.ReconstructionError(DataSlotType::kContext) << std::endl;
+            std::cout << "debug : " << iter << " = " << bottom_layer.ReconstructionError(DataSlotType::kNext) << std::endl;
         }
 
         // neuron activation
@@ -1036,76 +1072,27 @@ namespace deep_learning_lib
 
         total_activation_count_ = total_activation_count_ * act_decay + 1;
 
-        //
-        bottom_layer.context_data_slot_.CopyTo(bottom_layer.next_data_slot_);
-        InitContext(bottom_layer, top_layer);
+        ////
+        //bottom_layer.context_data_slot_.CopyTo(bottom_layer.next_data_slot_);
+        //InitContext(bottom_layer, top_layer);
 
-        for (int iter = 0; iter < kInferIteration; iter++)
-        {
-            PassUp(bottom_layer, DataSlotType::kNext, top_layer, DataSlotType::kNext);
+        //for (int iter = 0; iter < kInferIteration; iter++)
+        //{
+        //    PassUp(bottom_layer, DataSlotType::kNext, top_layer, DataSlotType::kNext);
 
-            PassDown(top_layer, DataSlotType::kNext, bottom_layer, DataSlotType::kContext);
+        //    PassDown(top_layer, DataSlotType::kNext, bottom_layer, DataSlotType::kContext);
 
-            /*bottom_layer.GenerateImage().save_image("model_dump\\debug_2_bottom_data_" + std::to_string(iter) + ".bmp");
-            top_layer.GenerateImage().save_image("model_dump\\debug_2_top_data_" + std::to_string(iter) + ".bmp");
-            bottom_layer.Dump("model_dump\\debug_2_bottom_data_" + std::to_string(iter) + ".txt");
-            top_layer.Dump("model_dump\\debug_2_top_data_" + std::to_string(iter) + ".txt");*/
+        //    /*bottom_layer.GenerateImage().save_image("model_dump\\debug_2_bottom_data_" + std::to_string(iter) + ".bmp");
+        //    top_layer.GenerateImage().save_image("model_dump\\debug_2_top_data_" + std::to_string(iter) + ".bmp");
+        //    bottom_layer.Dump("model_dump\\debug_2_bottom_data_" + std::to_string(iter) + ".txt");
+        //    top_layer.Dump("model_dump\\debug_2_top_data_" + std::to_string(iter) + ".txt");*/
 
-            top_layer.next_data_slot_.CopyTo(top_layer.context_data_slot_);
+        //    top_layer.next_data_slot_.CopyTo(top_layer.context_data_slot_);
 
-            std::cout << "debug 2: " << iter << " = " << bottom_layer.ReconstructionError(DataSlotType::kContext) << std::endl;
-        }
+        //    std::cout << "debug 2: " << iter << " = " << bottom_layer.ReconstructionError(DataSlotType::kContext) << std::endl;
+        //}
 
-        // non-tiled version
-        parallel_for_each(conv_neuron_weights_delta.extent, [=](index<4> idx) restrict(amp)
-        {
-            auto delta = 0.0;
-
-            int neuron_idx = idx[0];
-            int bottom_depth_idx = idx[1];
-            int neuron_height_idx = idx[2];
-            int neuron_width_idx = idx[3];
-
-            //auto neuron_weight = conv_neuron_weights[idx];
-
-            for (int top_height_idx = 0; top_height_idx < top_height; top_height_idx++)
-            {
-                for (int top_width_idx = 0; top_width_idx < top_width; top_width_idx++)
-                {
-                    index<3> top_idx(neuron_idx, top_height_idx, top_width_idx);
-                    index<3> bottom_idx(bottom_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
-
-                    auto top_expect = top_expects[top_idx];
-                    auto top_next_expect = top_next_expects[top_idx];
-
-                    auto bottom_expect = bottom_expects[bottom_idx];
-                    auto bottom_next_expect = bottom_next_expects[bottom_idx];
-                    /*auto bottom_next_raw_weight = bottom_next_raw_weights[bottom_idx];
-                    auto bottom_context_expect = bottom_context_expects[bottom_idx];
-                    auto bottom_context_raw_weight = bottom_context_raw_weights[bottom_idx];*/
-
-                    /*auto credit = fabs(bottom_next_expect - CalcActivationProb(bottom_next_raw_weight - top_expect * neuron_weight));
-                    auto next_credit = fabs(bottom_context_expect - CalcActivationProb(bottom_context_raw_weight - top_next_expect * neuron_weight));*/
-
-                    /*auto decay = 0.01;
-                    auto step = 0.0;
-                    if (neuron_weight > decay)
-                    {
-                    step = -decay;
-                    }
-                    else if (neuron_weight < -decay)
-                    {
-                    step = decay;
-                    }*/
-
-
-                    //delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect + top_expect * step;
-                    delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect;
-                }
-            }
-
-            conv_neuron_weights_delta[idx] += delta / (top_height * top_width) * learning_rate;
-        });
+        
 
         //// update vbias
         //parallel_for_each(conv_vbias_delta.extent, [=](index<1> idx) restrict(amp)
@@ -1173,14 +1160,14 @@ namespace deep_learning_lib
         array_view<double> conv_vbias = this->vbias_view_;
         array_view<double> conv_hbias = this->hbias_view_;
 
-        int inferIter = 1;// kInferIteration;
+        int inferIter = kInferIteration;
 
         parallel_for_each(conv_neuron_weights.extent, [=](index<4> idx) restrict(amp)
         {
             conv_neuron_weights[idx] += conv_neuron_weights_delta[idx] / batch_size / inferIter;
             conv_neuron_weights_delta[idx] = 0.0;
 
-            /*auto& weight = conv_neuron_weights[idx];
+            auto& weight = conv_neuron_weights[idx];
 
             const double decay = 0.0001;
 
@@ -1195,7 +1182,7 @@ namespace deep_learning_lib
             else
             {
                 weight = 0;
-            }*/
+            }
         });
 
         parallel_for_each(conv_hbias.extent, [=](index<1> idx) restrict(amp)
