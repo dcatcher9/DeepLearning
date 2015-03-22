@@ -19,6 +19,7 @@ namespace deep_learning_lib
         kCurrent,
         kNext,
         kContext,
+        kLast,
         kInvalid
     };
 
@@ -60,6 +61,7 @@ namespace deep_learning_lib
         DataSlot cur_data_slot_;
         DataSlot next_data_slot_;
         DataSlot context_data_slot_;
+        DataSlot last_data_slot_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -93,6 +95,8 @@ namespace deep_learning_lib
                 return next_data_slot_;
             case DataSlotType::kContext:
                 return context_data_slot_;
+            case DataSlotType::kLast:
+                return last_data_slot_;
             default:
                 throw("Invalid data slot type for data layer.");
             }
@@ -206,7 +210,7 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        const int kInferIteration = 10;
+        const int kInferIteration = 1;
         const double kRawWeightDecay = 0.0;
         const double kActivationDecay = 0.999;
 
