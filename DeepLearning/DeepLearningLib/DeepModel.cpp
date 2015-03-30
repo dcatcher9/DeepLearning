@@ -780,7 +780,7 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::PassUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-        DataLayer& top_layer, DataSlotType top_slot_type, double update_step) const
+        DataLayer& top_layer, DataSlotType top_slot_type) const
     {
         // neuron layer
         const int neuron_height = this->neuron_height();
@@ -838,14 +838,11 @@ namespace deep_learning_lib
             auto top_context_expect = top_context_expects[idx];
             auto top_context_raw_weight = top_context_raw_weights[idx];
 
-            //auto weight_delta = 0.0;
+            auto weight_delta = 0.0;
+
+            auto model_delta_norm = 0.0;
 
             const auto& current_neuron = conv_neuron_weights[top_depth_idx];
-
-            auto top_inactive_expect = CalcActivationProb(top_context_raw_weight - update_step);
-            auto top_active_expect = CalcActivationProb(top_context_raw_weight + update_step);
-            auto top_inactive_gain = 0.0;
-            auto top_active_gain = 0.0;
 
             for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
             {
@@ -861,44 +858,42 @@ namespace deep_learning_lib
 
                         auto weight = current_neuron(depth_idx, height_idx, width_idx);
 
-                        auto top_inactive_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (top_inactive_expect - top_context_expect) * weight);
-                        auto top_active_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (top_active_expect - top_context_expect) * weight);
+                        auto top_inactive_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight - top_context_expect * weight);
+                        auto top_active_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (1.0 - top_context_expect) * weight);
 
-                        top_inactive_gain = fabs(data_expect - bottom_context_expect) - fabs(data_expect - top_inactive_bottom_context_expect);
-                        top_active_gain = fabs(data_expect - bottom_context_expect) - fabs(data_expect - top_active_bottom_context_expect);
+                        auto data_delta = data_expect - bottom_context_expect;
+                        auto model_delta = 0.0;
 
-                        //auto data_delta = data_expect - bottom_context_expect;
-                        //auto model_delta = 0.0;
+                        if (data_delta > 0.0)
+                        {
+                            if (weight > 0.0)
+                            {
+                                model_delta = top_active_bottom_context_expect - bottom_context_expect;// > 0
+                            }
+                            else
+                            {
+                                model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// < 0
+                            }
+                        }
+                        else
+                        {
+                            if (weight > 0.0)
+                            {
+                                model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// > 0
+                            }
+                            else
+                            {
+                                model_delta = top_active_bottom_context_expect - bottom_context_expect;// < 0
+                            }
+                        }
 
-                        //if (data_delta > 0.0)
-                        //{
-                        //    if (weight > 0.0)
-                        //    {
-                        //        model_delta = top_active_bottom_context_expect - bottom_context_expect;// > 0
-                        //    }
-                        //    else
-                        //    {
-                        //        model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// < 0
-                        //    }
-                        //}
-                        //else
-                        //{
-                        //    if (weight > 0.0)
-                        //    {
-                        //        model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// > 0
-                        //    }
-                        //    else
-                        //    {
-                        //        model_delta = top_active_bottom_context_expect - bottom_context_expect;// < 0
-                        //    }
-                        //}
-
-                        //weight_delta += data_delta * model_delta;
+                        weight_delta += data_delta * model_delta;
+                        model_delta_norm += fabs(model_delta);
                     }
                 }
             }
 
-            top_raw_weight = (top_context_raw_weight + weight_delta);
+            top_raw_weight = (top_context_raw_weight + weight_delta / model_delta_norm);
 
             auto expect = CalcActivationProb(top_raw_weight);
             top_expects[idx] = expect;
@@ -1049,26 +1044,30 @@ namespace deep_learning_lib
         //array_view<const double, 4> conv_neuron_weights = this->neuron_weights_view_;
         array_view<double> activation_view = this->activation_view_;
 
-        InitContext(bottom_layer, top_layer);
+        /*InitContext(bottom_layer, top_layer);
 
         InferUp(bottom_layer, DataSlotType::kCurrent, top_layer, DataSlotType::kCurrent);
 
-        bottom_layer.context_data_slot_.CopyTo(bottom_layer.last_data_slot_);
+        bottom_layer.context_data_slot_.CopyTo(bottom_layer.last_data_slot_);*/
 
         /*bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data_init.bmp");
         top_layer.GenerateImage().save_image("model_dump\\debug_top_data_init.bmp");
         bottom_layer.Dump("model_dump\\debug_bottom_data_init.txt");
         top_layer.Dump("model_dump\\debug_top_data_init.txt");*/
 
-        InitContext(bottom_layer, top_layer);
+        //InitContext(bottom_layer, top_layer);
 
-        for (int iter = 0; iter < kInferIteration; iter++)
+        //for (int iter = 0; iter < kInferIteration; iter++)
         {
-            PassUp(bottom_layer, DataSlotType::kCurrent, top_layer, DataSlotType::kCurrent);
+            InitContext(bottom_layer, top_layer);
+
+            InferUp(bottom_layer, DataSlotType::kCurrent, top_layer, DataSlotType::kCurrent);
 
             PassDown(top_layer, DataSlotType::kCurrent, bottom_layer, DataSlotType::kNext);
 
-            PassUp(bottom_layer, DataSlotType::kLast, top_layer, DataSlotType::kLast);
+            InitContext(bottom_layer, top_layer);
+
+            InferUp(bottom_layer, DataSlotType::kNext, top_layer, DataSlotType::kNext);
 
             /*bottom_layer.GenerateImage().save_image("model_dump\\debug_1_bottom_data_" + std::to_string(iter) + ".bmp");
             top_layer.GenerateImage().save_image("model_dump\\debug_1_top_data_" + std::to_string(iter) + ".bmp");
@@ -1095,31 +1094,26 @@ namespace deep_learning_lib
                         index<3> bottom_idx(bottom_depth_idx, neuron_height_idx + top_height_idx, neuron_width_idx + top_width_idx);
 
                         auto top_expect = top_expects[top_idx];
-                        //auto top_next_expect = top_next_expects[top_idx];
-                        auto top_last_expect = top_last_expects[top_idx];
-                        auto top_context_expect = top_context_expects[top_idx];
+                        auto top_next_expect = top_next_expects[top_idx];
+                        /*auto top_last_expect = top_last_expects[top_idx];
+                        auto top_context_expect = top_context_expects[top_idx];*/
 
                         auto bottom_expect = bottom_expects[bottom_idx];
-                        //auto bottom_next_expect = bottom_next_expects[bottom_idx];
-                        auto bottom_last_expect = bottom_last_expects[bottom_idx];
+                        auto bottom_next_expect = bottom_next_expects[bottom_idx];
+                        //auto bottom_last_expect = bottom_last_expects[bottom_idx];
 
-                        //delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect;
-                        delta += bottom_expect * top_expect - bottom_last_expect * top_last_expect;
-
-                        /*if (iter > 0)
-                        {
-                        delta += (bottom_expect * (top_expect - top_context_expect)) * 4;
-                        }*/
+                        delta += bottom_expect * top_expect - bottom_next_expect * top_next_expect;
+                        //delta += bottom_expect * top_expect - bottom_last_expect * top_last_expect;
                     }
                 }
 
                 conv_neuron_weights_delta[idx] += delta / (top_height * top_width) * learning_rate;
             });
 
-            top_layer.cur_data_slot_.CopyTo(top_layer.context_data_slot_);
-            bottom_layer.next_data_slot_.CopyTo(bottom_layer.context_data_slot_);
+            /*top_layer.cur_data_slot_.CopyTo(top_layer.context_data_slot_);
+            bottom_layer.next_data_slot_.CopyTo(bottom_layer.context_data_slot_);*/
 
-            std::cout << "debug : " << iter << " = " << bottom_layer.ReconstructionError(DataSlotType::kNext) << std::endl;
+            std::cout << "debug = " << bottom_layer.ReconstructionError(DataSlotType::kNext) << std::endl;
         }
 
         // neuron activation
@@ -1232,7 +1226,7 @@ namespace deep_learning_lib
         array_view<double> conv_vbias = this->vbias_view_;
         array_view<double> conv_hbias = this->hbias_view_;
 
-        int inferIter = kInferIteration;
+        int inferIter = 1;// kInferIteration;
 
         parallel_for_each(conv_neuron_weights.extent, [=](index<4> idx) restrict(amp)
         {
