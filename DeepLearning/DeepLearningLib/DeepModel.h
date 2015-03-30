@@ -214,6 +214,8 @@ namespace deep_learning_lib
         const double kRawWeightDecay = 0.0;
         const double kActivationDecay = 0.999;
 
+        const double kInferStep = 0.1;
+
     public:
         // neurons weight view [neuron_idx, neuron_depth, neuron_height, neuron_width]
         concurrency::array_view<double, 4> neuron_weights_view_;
@@ -265,7 +267,7 @@ namespace deep_learning_lib
 
         // simple pass up
         void PassUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-            DataLayer& top_layer, DataSlotType top_slot_type) const;
+            DataLayer& top_layer, DataSlotType top_slot_type, double update_step) const;
 
         void PassDown(const DataLayer& top_layer, DataSlotType top_slot_type,
             DataLayer& bottom_layer, DataSlotType bottom_slot_type) const;

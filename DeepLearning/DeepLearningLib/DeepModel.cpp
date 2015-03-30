@@ -780,7 +780,7 @@ namespace deep_learning_lib
     }
 
     void ConvolveLayer::PassUp(DataLayer& bottom_layer, DataSlotType bottom_slot_type,
-        DataLayer& top_layer, DataSlotType top_slot_type) const
+        DataLayer& top_layer, DataSlotType top_slot_type, double update_step) const
     {
         // neuron layer
         const int neuron_height = this->neuron_height();
@@ -838,10 +838,14 @@ namespace deep_learning_lib
             auto top_context_expect = top_context_expects[idx];
             auto top_context_raw_weight = top_context_raw_weights[idx];
 
-            //auto weight_base = 0.0;
-            auto weight_delta = 0.0;
+            //auto weight_delta = 0.0;
 
             const auto& current_neuron = conv_neuron_weights[top_depth_idx];
+
+            auto top_inactive_expect = CalcActivationProb(top_context_raw_weight - update_step);
+            auto top_active_expect = CalcActivationProb(top_context_raw_weight + update_step);
+            auto top_inactive_gain = 0.0;
+            auto top_active_gain = 0.0;
 
             for (int depth_idx = 0; depth_idx < bottom_depth; depth_idx++)
             {
@@ -851,28 +855,49 @@ namespace deep_learning_lib
                     {
                         index<3> bottom_idx(depth_idx, top_height_idx + height_idx, top_width_idx + width_idx);
 
-                        //auto data_value = bottom_values[bottom_idx];
                         auto data_expect = bottom_expects[bottom_idx];
                         auto bottom_context_expect = bottom_context_expects[bottom_idx];
                         auto bottom_context_raw_weight = bottom_context_raw_weights[bottom_idx];
 
                         auto weight = current_neuron(depth_idx, height_idx, width_idx);
 
-                        auto bottom_without_expect = CalcActivationProb(bottom_context_raw_weight - top_context_expect * weight);
+                        auto top_inactive_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (top_inactive_expect - top_context_expect) * weight);
+                        auto top_active_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (top_active_expect - top_context_expect) * weight);
 
-                        /*weight_delta += (data_value - bottom_context_expect)
-                            * (bottom_context_expect - bottom_without_expect);*/
-                        weight_delta += (data_expect - bottom_context_expect)
-                            * (bottom_context_expect - bottom_without_expect);
-                        //weight_delta += (data_expect - bottom_context_expect) * weight;
-                        //weight_delta += (data_expect) * weight;
+                        top_inactive_gain = fabs(data_expect - bottom_context_expect) - fabs(data_expect - top_inactive_bottom_context_expect);
+                        top_active_gain = fabs(data_expect - bottom_context_expect) - fabs(data_expect - top_active_bottom_context_expect);
+
+                        //auto data_delta = data_expect - bottom_context_expect;
+                        //auto model_delta = 0.0;
+
+                        //if (data_delta > 0.0)
+                        //{
+                        //    if (weight > 0.0)
+                        //    {
+                        //        model_delta = top_active_bottom_context_expect - bottom_context_expect;// > 0
+                        //    }
+                        //    else
+                        //    {
+                        //        model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// < 0
+                        //    }
+                        //}
+                        //else
+                        //{
+                        //    if (weight > 0.0)
+                        //    {
+                        //        model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// > 0
+                        //    }
+                        //    else
+                        //    {
+                        //        model_delta = top_active_bottom_context_expect - bottom_context_expect;// < 0
+                        //    }
+                        //}
+
+                        //weight_delta += data_delta * model_delta;
                     }
                 }
             }
 
-            //top_raw_weight = (top_context_raw_weight + weight_delta) * 0.5 + weight_base * 0.5;
-            //top_raw_weight = (top_context_raw_weight + weight_delta) - top_context_expect * (1.0 - top_context_expect) * rawWeightDecay;
-            //top_raw_weight = (top_context_raw_weight + weight_delta) - (top_context_expect - 0.5) * rawWeightDecay;
             top_raw_weight = (top_context_raw_weight + weight_delta);
 
             auto expect = CalcActivationProb(top_raw_weight);
