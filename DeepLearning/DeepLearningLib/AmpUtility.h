@@ -27,16 +27,16 @@ namespace deep_learning_lib
 
     inline double CalcActivationProb(const double weight) restrict(amp)
     {
-        if (weight <= 0)
+        /*if (weight <= 0)
         {
             return 0;
         }
         else
         {
             return 2.0 / (1.0 + concurrency::precise_math::exp(-weight)) - 1.0;
-        }
+        }*/
 
-        //return 1.0 / (1.0 + concurrency::precise_math::exp(-weight));
+        return 1.0 / (1.0 + concurrency::precise_math::exp(-weight));
     }
 
     template<typename T, int Rank>

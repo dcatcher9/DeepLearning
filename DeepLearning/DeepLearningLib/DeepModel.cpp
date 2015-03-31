@@ -900,7 +900,7 @@ namespace deep_learning_lib
             top_values[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
 
             //top_deltas[idx] = expect - top_context_expects[idx];
-            top_deltas[idx] = CalcActivationProb(weight_delta);
+            top_deltas[idx] = CalcActivationProb(weight_delta / model_delta_norm);
         });
     }
 
@@ -925,8 +925,8 @@ namespace deep_learning_lib
 
             PassDown(top_layer, top_slot_type, bottom_layer, DataSlotType::kContext);
 
-            /*bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data.bmp");
-            top_layer.GenerateImage().save_image("model_dump\\debug_top_data.bmp");*/
+           /* bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".bmp");
+            top_layer.GenerateImage().save_image("model_dump\\debug_top_data_" + std::to_string(iter) + ".bmp");*/
         }
     }
 
