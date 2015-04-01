@@ -862,45 +862,47 @@ namespace deep_learning_lib
                         auto top_active_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (1.0 - top_context_expect) * weight);
 
                         auto data_delta = data_expect - bottom_context_expect;
-                        auto model_delta = 0.0;
+                        auto model_delta_abs = fmin(fabs(top_active_bottom_context_expect - bottom_context_expect),
+                            fabs(bottom_context_expect - top_inactive_bottom_context_expect));
+                        auto model_delat_dir = data_delta * weight > 0 ? 1.0 : -1.0;
 
-                        if (data_delta > 0.0)
-                        {
-                            if (weight > 0.0)
-                            {
-                                model_delta = top_active_bottom_context_expect - bottom_context_expect;// > 0
-                            }
-                            else
-                            {
-                                model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// < 0
-                            }
-                        }
-                        else
-                        {
-                            if (weight > 0.0)
-                            {
-                                model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// > 0
-                            }
-                            else
-                            {
-                                model_delta = top_active_bottom_context_expect - bottom_context_expect;// < 0
-                            }
-                        }
+                        //if (data_delta > 0.0)
+                        //{
+                        //    if (weight > 0.0)
+                        //    {
+                        //        model_delta = top_active_bottom_context_expect - bottom_context_expect;// > 0
+                        //    }
+                        //    else
+                        //    {
+                        //        model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// < 0
+                        //    }
+                        //}
+                        //else
+                        //{
+                        //    if (weight > 0.0)
+                        //    {
+                        //        model_delta = bottom_context_expect - top_inactive_bottom_context_expect;// > 0
+                        //    }
+                        //    else
+                        //    {
+                        //        model_delta = top_active_bottom_context_expect - bottom_context_expect;// < 0
+                        //    }
+                        //}
 
-                        weight_delta += data_delta * model_delta;
-                        model_delta_norm += fabs(model_delta);
+                        weight_delta += data_delta * model_delta_abs * model_delat_dir;
+                        //model_delta_norm += model_delta_abs;
                     }
                 }
             }
 
-            top_raw_weight = (top_context_raw_weight + weight_delta / model_delta_norm);
+            top_raw_weight = (top_context_raw_weight + weight_delta);
 
             auto expect = CalcActivationProb(top_raw_weight);
             top_expects[idx] = expect;
             top_values[idx] = rand_collection[idx].next_single() <= expect ? 1.0 : 0.0;
 
             //top_deltas[idx] = expect - top_context_expects[idx];
-            top_deltas[idx] = CalcActivationProb(weight_delta / model_delta_norm);
+            top_deltas[idx] = CalcActivationProb(weight_delta);
         });
     }
 
@@ -925,8 +927,8 @@ namespace deep_learning_lib
 
             PassDown(top_layer, top_slot_type, bottom_layer, DataSlotType::kContext);
 
-           /* bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".bmp");
-            top_layer.GenerateImage().save_image("model_dump\\debug_top_data_" + std::to_string(iter) + ".bmp");*/
+            /* bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".bmp");
+             top_layer.GenerateImage().save_image("model_dump\\debug_top_data_" + std::to_string(iter) + ".bmp");*/
         }
     }
 
@@ -1235,19 +1237,19 @@ namespace deep_learning_lib
 
             /*auto& weight = conv_neuron_weights[idx];
 
-            const double decay = 0.0001;
+            const double decay = 0.001;
 
             if (weight > decay)
             {
-            weight -= decay;
+                weight -= decay;
             }
             else if (weight < -decay)
             {
-            weight += decay;
+                weight += decay;
             }
             else
             {
-            weight = 0;
+                weight = 0;
             }*/
         });
 
