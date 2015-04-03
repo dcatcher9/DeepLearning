@@ -864,7 +864,7 @@ namespace deep_learning_lib
                         auto data_delta = data_expect - bottom_context_expect;
                         auto model_delta_abs = fmin(fabs(top_active_bottom_context_expect - bottom_context_expect),
                             fabs(bottom_context_expect - top_inactive_bottom_context_expect));
-                        auto model_delat_dir = data_delta * weight > 0 ? 1.0 : -1.0;
+                        auto model_delat_dir = weight > 0 ? 1.0 : -1.0;
 
                         //if (data_delta > 0.0)
                         //{
