@@ -49,6 +49,7 @@ namespace deep_learning_lib
             // [depth_idx = neuron_idx, height_idx, width_idx]
             concurrency::array_view<double, 3> raw_weights_view_;
             concurrency::array_view<double, 3> delta_view_;
+            concurrency::array_view<double, 3> norm_view_;
 
             explicit DataSlot(int depth, int height, int width);
 
@@ -62,6 +63,8 @@ namespace deep_learning_lib
         DataSlot next_data_slot_;
         DataSlot context_data_slot_;
         DataSlot last_data_slot_;
+
+        concurrency::array_view<int, 3> dropout_view_;
 
         tinymt_collection<3> rand_collection_;
 
@@ -103,6 +106,8 @@ namespace deep_learning_lib
         }
 
         void SetValue(const std::vector<double>& data);
+
+        void SetDropoutRate(double rate);
 
         void Clear(DataSlotType slot_type);
 
@@ -210,7 +215,7 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        const int kInferIteration = 10;
+        const int kInferIteration = 5;
         const double kRawWeightDecay = 0.0;
         const double kActivationDecay = 0.999;
 

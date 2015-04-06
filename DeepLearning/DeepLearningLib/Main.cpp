@@ -97,7 +97,7 @@ void TestUSPS()
     DeepModel model;
 
     model.AddDataLayer(1, 16, 16);
-    model.AddConvolveLayer(10, 16, 16);
+    model.AddConvolveLayer(20, 16, 16);
     model.AddDataLayer();
     model.AddOutputLayer(10);
 
@@ -111,7 +111,7 @@ void TestUSPS()
 
         //for (int j = 0; j < 10; j++)
         {
-            auto err = model.TrainLayer(data, 1, 0.1, label);
+            auto err = model.TrainLayer(data, 1, 0.05, label);
             cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
         }
 
