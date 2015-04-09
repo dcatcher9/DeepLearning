@@ -215,7 +215,7 @@ namespace deep_learning_lib
         std::vector<double> vbias_;
         std::vector<double> hbias_;
 
-        const int kInferIteration = 5;
+        const int kInferIteration = 10;
         const double kRawWeightDecay = 0.0;
         const double kActivationDecay = 0.999;
 

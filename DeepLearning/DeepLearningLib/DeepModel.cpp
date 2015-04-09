@@ -912,7 +912,7 @@ namespace deep_learning_lib
 
             auto weight_delta = 0.0;
 
-            auto model_delta_norm = 0.0;
+            //auto model_delta_norm = 0.0;
 
             const auto& current_neuron = conv_neuron_weights[top_depth_idx];
 
@@ -933,10 +933,10 @@ namespace deep_learning_lib
                         auto top_inactive_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight - top_context_value * weight);
                         auto top_active_bottom_context_expect = CalcActivationProb(bottom_context_raw_weight + (1.0 - top_context_value) * weight);
 
-                        auto top_inactive_loss = fabs(top_inactive_bottom_context_expect - data_expect);
-                        auto top_active_loss = fabs(top_active_bottom_context_expect - data_expect);
+                        auto top_inactive_likelihood = data_expect * top_inactive_bottom_context_expect + (1.0 - data_expect) * (1.0 - top_inactive_bottom_context_expect);
+                        auto top_active_likelihood = data_expect * top_active_bottom_context_expect + (1.0 - data_expect) * (1.0 - top_active_bottom_context_expect);
 
-                        weight_delta += top_inactive_loss - top_active_loss;
+                        weight_delta += log(top_active_likelihood) - log(top_inactive_likelihood);
                     }
                 }
             }
@@ -976,11 +976,11 @@ namespace deep_learning_lib
 
             PassDown(top_layer, top_slot_type, bottom_layer, DataSlotType::kContext);
 
-            //bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".bmp");
-            //top_layer.GenerateImage().save_image("model_dump\\debug_top_data_" + std::to_string(iter) + ".bmp");
+            bottom_layer.GenerateImage().save_image("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".bmp");
+            top_layer.GenerateImage().save_image("model_dump\\debug_top_data_" + std::to_string(iter) + ".bmp");
 
-            //bottom_layer.Dump("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".txt");
-            //top_layer.Dump("model_dump\\debug_top_data_" + std::to_string(iter) + ".txt");
+            bottom_layer.Dump("model_dump\\debug_bottom_data_" + std::to_string(iter) + ".txt");
+            top_layer.Dump("model_dump\\debug_top_data_" + std::to_string(iter) + ".txt");
         }
     }
 
@@ -1189,15 +1189,15 @@ namespace deep_learning_lib
                             auto bottom_next_expect = bottom_next_expects[bottom_idx];
                             auto bottom_next_raw_weight = bottom_next_raw_weights[bottom_idx];
 
-                            if (top_value == 1.0)
+                            /*if (top_value == 1.0)
                             {
                                 auto top_inactive_bottom_next_expect = CalcActivationProb(bottom_next_raw_weight - neuron_weight);
 
                                 double weight = exp(fabs(bottom_next_expect - top_inactive_bottom_next_expect)) / bottom_next_norm[bottom_idx];
                                 delta += (bottom_expect - bottom_next_expect) * weight;
-                            }
+                            }*/
 
-                            //delta += bottom_expect * top_expect - bottom_next_expect * top_expect;
+                            delta += bottom_expect * top_expect - bottom_next_expect * top_expect;
                             //delta += bottom_expect * top_expect - bottom_last_expect * top_last_expect;
                         }
                     }
