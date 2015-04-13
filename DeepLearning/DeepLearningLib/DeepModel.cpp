@@ -1066,7 +1066,7 @@ namespace deep_learning_lib
             bottom_expects[idx] = prob;
             bottom_values[idx] = rand_collection[idx].next_single() <= prob ? 1.0 : 0.0;
 
-            auto norm = 0.0;
+            /*auto norm = 0.0;
 
             for (int neuron_idx = 0; neuron_idx < neuron_num; neuron_idx++)
             {
@@ -1089,7 +1089,7 @@ namespace deep_learning_lib
                 }
             }
 
-            bottom_norm[idx] = norm;
+            bottom_norm[idx] = norm;*/
         });
     }
 
@@ -1101,6 +1101,7 @@ namespace deep_learning_lib
         array_view<const double, 3> top_context_expects = top_layer.context_data_slot_.expects_view_;
         array_view<const double, 3> top_values = top_layer.cur_data_slot_.values_view_;
         array_view<const double, 3> top_expects = top_layer.cur_data_slot_.expects_view_;
+        array_view<const double, 3> top_raw_weights = top_layer.cur_data_slot_.raw_weights_view_;
         array_view<const double, 3> top_next_expects = top_layer.next_data_slot_.expects_view_;
         array_view<const double, 3> top_last_expects = top_layer.last_data_slot_.expects_view_;
         array_view<const int, 3> top_dropout = top_layer.dropout_view_;
@@ -1183,31 +1184,32 @@ namespace deep_learning_lib
                         {
                             auto top_expect = top_expects[top_idx];
                             auto top_value = top_values[top_idx];
+                            auto top_raw_weight = top_raw_weights[top_idx];
                             auto top_next_expect = top_next_expects[top_idx];
 
                             auto bottom_expect = bottom_expects[bottom_idx];
                             auto bottom_next_expect = bottom_next_expects[bottom_idx];
                             auto bottom_next_raw_weight = bottom_next_raw_weights[bottom_idx];
 
-                            /*if (top_value == 1.0)
-                            {
-                                auto top_inactive_bottom_next_expect = CalcActivationProb(bottom_next_raw_weight - neuron_weight);
+                            auto top_inactive_bottom_next_expect = CalcActivationProb(bottom_next_raw_weight - top_value * neuron_weight);
+                            auto top_active_bottom_next_expect = CalcActivationProb(bottom_next_raw_weight + (1.0 - top_value) * neuron_weight);
 
-                                double weight = exp(fabs(bottom_next_expect - top_inactive_bottom_next_expect)) / bottom_next_norm[bottom_idx];
-                                delta += (bottom_expect - bottom_next_expect) * weight;
-                            }*/
+                            auto top_inactive_likelihood = bottom_expect * top_inactive_bottom_next_expect + (1.0 - bottom_expect) * (1.0 - top_inactive_bottom_next_expect);
+                            auto top_active_likelihood = bottom_expect * top_active_bottom_next_expect + (1.0 - bottom_expect) * (1.0 - top_active_bottom_next_expect);
 
-                            delta += bottom_expect * top_expect - bottom_next_expect * top_expect;
-                            //delta += bottom_expect * top_expect - bottom_last_expect * top_last_expect;
+                            auto weight_delta = log(top_active_likelihood) - log(top_inactive_likelihood);
+
+                            auto delta_up = (bottom_expect - bottom_next_expect) * (top_expect - CalcActivationProb(top_raw_weight - weight_delta));
+
+                            auto delta_down = (bottom_expect - bottom_next_expect) * top_expect;
+
+                            delta += delta_down;
                         }
                     }
                 }
 
                 conv_neuron_weights_delta[idx] += delta / (top_height * top_width) * learning_rate;
             });
-
-            /*top_layer.cur_data_slot_.CopyTo(top_layer.context_data_slot_);
-            bottom_layer.next_data_slot_.CopyTo(bottom_layer.context_data_slot_);*/
 
             std::cout << "debug = " << bottom_layer.ReconstructionError(DataSlotType::kNext) << std::endl;
         }

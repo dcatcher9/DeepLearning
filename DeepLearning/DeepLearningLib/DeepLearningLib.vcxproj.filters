@@ -44,12 +44,18 @@
     <ClInclude Include="DeepModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SwarmNeuralNetwork.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="DeepModel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SwarmNeuralNetwork.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
