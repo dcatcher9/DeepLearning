@@ -30,8 +30,6 @@ namespace deep_learning_lib
         concurrency::array_view<double, 2> neuron_weights_;
         // indicates bottom neuron innate activation expect
         concurrency::array_view<double> bottom_biases_;
-        // influences top neuron activation order
-        concurrency::array_view<double> top_biases_;
 
         // current data
         concurrency::array_view<int> bottom_values_;

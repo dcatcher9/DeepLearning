@@ -30,7 +30,6 @@ namespace deep_learning_lib
         top_length_(top_length),
         neuron_weights_(bottom_length, top_length),
         bottom_biases_(bottom_length),
-        top_biases_(top_length),
         bottom_values_(bottom_length),
         top_values_(top_length),
         bottom_recon_values_(bottom_length),
@@ -38,7 +37,6 @@ namespace deep_learning_lib
         top_rand_(extent<1>(top_length), seed + 1)
     {
         fill(bottom_biases_, 0.0);
-        fill(top_biases_, 0.0);
 
         fill(bottom_values_, 0);
         fill(top_values_, 0);
@@ -79,7 +77,7 @@ namespace deep_learning_lib
         array_view<const int> bottom_values = bottom_values_;
         array_view<const int> bottom_recon_values = bottom_recon_values_;
 
-        array_view<double> top_biases = top_biases_;
+        array_view<const double> bottom_biases = bottom_biases_;
         array_view<double, 2> neuron_weights = neuron_weights_;
 
         auto& top_rand = top_rand_;
@@ -92,16 +90,11 @@ namespace deep_learning_lib
             double messsage = 0.0;
             for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
             {
+                double bottom_bias = bottom_biases[bottom_idx];
                 double neuron_weight = neuron_weights(bottom_idx, top_idx);
 
-                if (bottom_values[bottom_idx] == 1)
-                {
-                    messsage += log(2.0) + neuron_weight - log(exp(neuron_weight) + 1.0);
-                }
-                else
-                {
-                    messsage += log(2.0) - log(exp(neuron_weight) + 1.0);
-                }
+                messsage += log(exp(bottom_bias) + 1.0) + neuron_weight * bottom_values[bottom_idx] 
+                    - log(exp(neuron_weight + bottom_bias) + 1.0);
             }
 
             double top_expect = CalcActivationProb(messsage);
@@ -162,11 +155,7 @@ namespace deep_learning_lib
                     // only activated top neuron can influence bottom neuron
                     if (top_values[top_idx] == 1)
                     {
-                        double& neuron_weight = neuron_weights(bottom_idx, top_idx);
-                        double single_recon_expect = CalcActivationProb(neuron_weight);
-
-                        double step = bottom_value == 1 ? data_weight : -data_weight;
-                        neuron_weight += (single_recon_expect - bottom_innate_expect) * step;
+                        neuron_weights(bottom_idx, top_idx) += (bottom_value - bottom_recon_expect) * data_weight;
                     }
                 }
 
