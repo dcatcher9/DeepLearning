@@ -41,6 +41,9 @@ namespace deep_learning_lib
         concurrency::array_view<int> top_values_;
         concurrency::array_view<int> bottom_recon_values_;
 
+        // for debug
+        concurrency::array_view<double> top_expects_;
+
         //
         tinymt_collection<1> bottom_rand_;
         tinymt_collection<1> top_rand_;

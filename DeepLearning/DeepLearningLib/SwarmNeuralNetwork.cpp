@@ -42,6 +42,7 @@ namespace deep_learning_lib
         bottom_biases_(bottom_length),
         bottom_values_(bottom_length),
         top_values_(top_length),
+        top_expects_(top_length),
         bottom_recon_values_(bottom_length),
         bottom_rand_(extent<1>(bottom_length), seed),
         top_rand_(extent<1>(top_length), seed + 1)
@@ -51,6 +52,8 @@ namespace deep_learning_lib
         fill(bottom_values_, 0);
         fill(top_values_, 0);
         fill(bottom_recon_values_, 0);
+
+        fill(top_expects_, 0.0);
 
         RandomizeParams(seed);
     }
@@ -86,8 +89,10 @@ namespace deep_learning_lib
         int bottom_length = bottom_length_;
 
         array_view<int> top_values = top_values_;
+        array_view<double> top_expects = top_expects_;
 
         top_values.discard_data();
+        top_expects_.discard_data();
 
         array_view<const int> bottom_values = bottom_values_;
         array_view<const int> bottom_recon_values = bottom_recon_values_;
@@ -113,6 +118,7 @@ namespace deep_learning_lib
             }
 
             double top_expect = CalcActivationProb(messsage);
+            top_expects[idx] = top_expect;
 
             int top_value = top_rand[idx].next_single() <= top_expect ? 1 : 0;
             top_values[idx] = top_value;
@@ -292,6 +298,8 @@ namespace deep_learning_lib
                         static_cast<unsigned char>(abs(weight) / max_value * 255.0));
                 }
             }
+            image.set_region(0, ((top_idx + 1) * (16 + 1) + 16) * (block_size + 1), 
+                16 * (block_size + 1), 2, static_cast<unsigned char>(127));
         }
 
         image.save_image(folder + "\\neuron_weights_" + tag + ".bmp");
@@ -339,6 +347,16 @@ namespace deep_learning_lib
         for (int top_idx = 0; top_idx < top_length_; top_idx++)
         {
             ofs << top_values_[top_idx] << "\t";
+        }
+
+        ofs << endl;
+        ofs << std::fixed;
+        ofs.precision(6);
+
+        ofs << "[top expects]" << endl;
+        for (int top_idx = 0; top_idx < top_length_; top_idx++)
+        {
+            ofs << top_expects_[top_idx] << "\t";
         }
         ofs.close();
     }
