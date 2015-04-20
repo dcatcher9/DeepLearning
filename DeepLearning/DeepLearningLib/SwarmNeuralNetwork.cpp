@@ -34,24 +34,29 @@ namespace deep_learning_lib
     using concurrency::precise_math::pow;
     using concurrency::precise_math::fabs;
     using concurrency::precise_math::fmin;
+    using concurrency::precise_math::fmax;
 
     SwarmNN::SwarmNN(int bottom_length, int top_length, unsigned int seed)
         : bottom_length_(bottom_length),
         top_length_(top_length),
         neuron_weights_(top_length, bottom_length),
         bottom_biases_(bottom_length),
+        top_biases_(top_length),
         bottom_values_(bottom_length),
         top_values_(top_length),
         top_expects_(top_length),
         bottom_recon_values_(bottom_length),
+        bottom_recon_raw_weights_(bottom_length),
         bottom_rand_(extent<1>(bottom_length), seed),
         top_rand_(extent<1>(top_length), seed + 1)
     {
         fill(bottom_biases_, 0.0);
+        fill(top_biases_, 0.0);
 
         fill(bottom_values_, 0);
         fill(top_values_, 0);
         fill(bottom_recon_values_, 0);
+        fill(bottom_recon_raw_weights_, 0.0);
 
         fill(top_expects_, 0.0);
 
@@ -77,7 +82,17 @@ namespace deep_learning_lib
     {
         concurrency::copy(input_data.begin(), bottom_values_);
 
-        PassUp(data_weight);
+        // RNN comes here
+        fill(top_values_, 0);
+        PassDown(0);
+
+        for (int i = 0; i < kInferenceCount; i++)
+        {
+            PassUp(0);
+            PassDown(data_weight);
+        }
+
+        PassUp(0);
         PassDown(data_weight);
 
         return CalcReconError();
@@ -91,13 +106,11 @@ namespace deep_learning_lib
         array_view<int> top_values = top_values_;
         array_view<double> top_expects = top_expects_;
 
-        top_values.discard_data();
-        top_expects_.discard_data();
-
         array_view<const int> bottom_values = bottom_values_;
-        array_view<const int> bottom_recon_values = bottom_recon_values_;
+        array_view<const double> bottom_recon_raw_weights = bottom_recon_raw_weights_;
 
         array_view<const double> bottom_biases = bottom_biases_;
+        array_view<double> top_biases = top_biases_;
         array_view<double, 2> neuron_weights = neuron_weights_;
 
         auto& top_rand = top_rand_;
@@ -107,21 +120,24 @@ namespace deep_learning_lib
             // for each top neuron
             int top_idx = idx[0];
 
-            double messsage = 0.0;
+            int& top_value = top_values[top_idx];
+
+            double messsage = top_biases[top_idx];
             for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
             {
-                double bottom_bias = bottom_biases[bottom_idx];
+                int bottom_value = bottom_values[bottom_idx];
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
+                double bottom_recon_raw_weight = bottom_recon_raw_weights[bottom_idx];
 
-                messsage += log(exp(bottom_bias) + 1.0) + neuron_weight * bottom_values[bottom_idx]
-                    - log(exp(neuron_weight + bottom_bias) + 1.0);
+                messsage += log(exp(bottom_recon_raw_weight - top_value * neuron_weight) + 1.0)
+                    + neuron_weight * bottom_value
+                    - log(exp(bottom_recon_raw_weight + (1 - top_value) * neuron_weight) + 1.0);
             }
 
             double top_expect = CalcActivationProb(messsage);
             top_expects[idx] = top_expect;
 
-            int top_value = top_rand[idx].next_single() <= top_expect ? 1 : 0;
-            top_values[idx] = top_value;
+            top_value = top_rand[idx].next_single() <= top_expect ? 1 : 0;
 
             if (data_weight > 0)
             {
@@ -156,13 +172,17 @@ namespace deep_learning_lib
 
         array_view<const int> bottom_values = bottom_values_;
         array_view<int> bottom_recon_values = bottom_recon_values_;
+        array_view<double> bottom_recon_raw_weights = bottom_recon_raw_weights_;
 
         bottom_recon_values.discard_data();
+        bottom_recon_raw_weights.discard_data();
 
         array_view<double> bottom_biases = bottom_biases_;
         array_view<double, 2> neuron_weights = neuron_weights_;
 
         auto& bottom_rand = bottom_rand_;
+        double powerLawFactor = kPowerLawFactor;
+        double powerLawCutoff = kPowerLawCutoff;
 
         parallel_for_each(extent<1>(bottom_length), [=](index<1> idx) restrict(amp)
         {
@@ -178,10 +198,10 @@ namespace deep_learning_lib
                 message += neuron_weights(top_idx, bottom_idx) * top_values[top_idx];
             }
 
+            bottom_recon_raw_weights[idx] = message;
             double bottom_recon_expect = CalcActivationProb(message);
 
-            int bottom_recon_value = bottom_rand[idx].next_single() <= bottom_recon_expect ? 1 : 0;
-            bottom_recon_values[idx] = bottom_recon_value;
+            bottom_recon_values[idx] = bottom_rand[idx].next_single() <= bottom_recon_expect ? 1 : 0;
 
             if (data_weight > 0)
             {
@@ -193,7 +213,14 @@ namespace deep_learning_lib
                     // only activated top neuron can influence bottom neuron, dropout effect.
                     if (top_values[top_idx] == 1)
                     {
-                        neuron_weights(top_idx, bottom_idx) += (bottom_value - bottom_recon_expect) * data_weight;
+                        double& neuron_weight = neuron_weights(top_idx, bottom_idx);
+                        neuron_weight += (bottom_value - bottom_recon_expect)
+                            * data_weight
+                            // force power law distribution of generation neuron weight(not recognization neuron weight)
+                            // resilient to random removal of top neurons
+                            // sensitive to targeted removal of top neurons
+                            // critical to limit the number contributing top neurons
+                            * fmax(powerLawCutoff, pow(fabs(neuron_weight), powerLawFactor));
                     }
                 }
 
@@ -228,6 +255,8 @@ namespace deep_learning_lib
         ofstream ofs;
 
         ofs.open(folder + "\\neuron_weights_" + tag + ".txt");
+        ofs << std::fixed;
+        ofs.precision(6);
 
         double max_value = numeric_limits<double>::min();
 
@@ -298,11 +327,27 @@ namespace deep_learning_lib
                         static_cast<unsigned char>(abs(weight) / max_value * 255.0));
                 }
             }
-            image.set_region(0, ((top_idx + 1) * (16 + 1) + 16) * (block_size + 1), 
+            image.set_region(0, ((top_idx + 1) * (16 + 1) + 16) * (block_size + 1),
                 16 * (block_size + 1), 2, static_cast<unsigned char>(127));
         }
 
-        image.save_image(folder + "\\neuron_weights_" + tag + ".bmp");
+        image.save_image(folder + "\\recoginzation_neuron_weights_" + tag + ".bmp");
+
+        image.setwidth_height(top_length_ * (block_size + 1), bottom_length_ * (block_size + 1), true);
+
+        for (int bottom_idx = 0; bottom_idx < bottom_length_; bottom_idx++)
+        {
+            for (int top_idx = 0; top_idx < top_length_; top_idx++)
+            {
+                auto weight = neuron_weights_(top_idx, bottom_idx);
+
+                image.set_region(top_idx * (block_size + 1), bottom_idx * (block_size + 1), block_size, block_size,
+                    weight > 0 ? bitmap_image::color_plane::green_plane : bitmap_image::color_plane::red_plane,
+                    static_cast<unsigned char>(abs(weight) / max_value * 255.0));
+            }
+        }
+
+        image.save_image(folder + "\\generation_neuron_weights_" + tag + ".bmp");
 
         ofs.open(folder + "\\bottom_" + tag + ".txt");
 

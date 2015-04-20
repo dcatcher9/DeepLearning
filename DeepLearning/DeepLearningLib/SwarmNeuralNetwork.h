@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 
-// for random number generator on GPU
+// for random number generator on GPU, maximum capacity = 65535 generators
 #include "amp_tinymt_rng.h"
 
 namespace deep_learning_lib
@@ -35,11 +35,14 @@ namespace deep_learning_lib
         concurrency::array_view<double, 2> neuron_weights_;
         // indicates bottom neuron innate activation expect
         concurrency::array_view<double> bottom_biases_;
+        // indicates top neuron activation frequence
+        concurrency::array_view<double> top_biases_;
 
         // current data
         concurrency::array_view<int> bottom_values_;
         concurrency::array_view<int> top_values_;
         concurrency::array_view<int> bottom_recon_values_;
+        concurrency::array_view<double> bottom_recon_raw_weights_;
 
         // for debug
         concurrency::array_view<double> top_expects_;
@@ -47,5 +50,9 @@ namespace deep_learning_lib
         //
         tinymt_collection<1> bottom_rand_;
         tinymt_collection<1> top_rand_;
+
+        const double kPowerLawFactor = 0.5;
+        const double kPowerLawCutoff = 0.05;
+        const int kInferenceCount = 5;
     };
 }

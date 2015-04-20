@@ -295,16 +295,19 @@ void TestSwarmNN()
 
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    SwarmNN model(256, 10);
+    SwarmNN model(256, 100);
 
     for (int i = 1; i < 20000; i++)
     {
         size_t idx = index_rand(generator);
         const auto& data = train_data[idx];
         const auto label = train_labels[idx];
-        auto err = model.Feed(data, 0.05);
+        auto err = model.Feed(data, 0.1);
         cout << "iter " << i << ": err = " << err << " idx = " << idx << endl;
-        model.Dump("model_dump");
+        if (i % 20 == 0)
+        {
+            model.Dump("model_dump");
+        }
     }
 }
 
