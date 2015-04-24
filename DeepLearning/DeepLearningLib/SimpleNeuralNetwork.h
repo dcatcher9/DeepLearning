@@ -8,11 +8,11 @@
 
 namespace deep_learning_lib
 {
-    class SwarmNN
+    class SimpleNN
     {
     public:
-        explicit SwarmNN(int bottom_length, int top_length, unsigned int seed = 0);
-        SwarmNN(const SwarmNN&) = delete;
+        explicit SimpleNN(int bottom_length, int top_length, unsigned int seed = 0);
+        SimpleNN(const SimpleNN&) = delete;
 
         double Feed(const std::vector<int>& input_data, double data_weight = 0);
 
@@ -21,8 +21,8 @@ namespace deep_learning_lib
     private:
         void RandomizeParams(unsigned int seed);
 
-        void PassUp(double data_weight = 0);
-        void PassDown(double data_weight = 0);
+        void PassUp();
+        void PassDown();
 
         double CalcReconError() const;
 
@@ -44,6 +44,9 @@ namespace deep_learning_lib
         concurrency::array_view<int> bottom_recon_values_;
         concurrency::array_view<double> bottom_recon_raw_weights_;
 
+        concurrency::array_view<double, 2> bottom_up_messages_;
+        concurrency::array_view<double, 2> top_down_messages_;
+
         // for debug
         concurrency::array_view<double> top_expects_;
 
@@ -51,8 +54,6 @@ namespace deep_learning_lib
         tinymt_collection<1> bottom_rand_;
         tinymt_collection<1> top_rand_;
 
-        const double kPowerLawFactor = 0.5;
-        const double kPowerLawCutoff = 0.05;
         const int kInferenceCount = 5;
     };
 }

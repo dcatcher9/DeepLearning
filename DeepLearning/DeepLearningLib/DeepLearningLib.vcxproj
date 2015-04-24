@@ -81,14 +81,14 @@
     <ClInclude Include="bitmap_image.hpp" />
     <ClInclude Include="cpplinq.hpp" />
     <ClInclude Include="DeepModel.h" />
-    <ClInclude Include="SwarmNeuralNetwork.h" />
+    <ClInclude Include="SimpleNeuralNetwork.h" />
     <ClInclude Include="xxamp_sobol_rng.h" />
     <ClInclude Include="xxamp_tinymt_precalc_dc.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DeepModel.cpp" />
     <ClCompile Include="Main.cpp" />
-    <ClCompile Include="SwarmNeuralNetwork.cpp" />
+    <ClCompile Include="SimpleNeuralNetwork.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Data Files\usps_all.txt" />

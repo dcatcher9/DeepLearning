@@ -1,5 +1,5 @@
 #include "DeepModel.h"
-#include "SwarmNeuralNetwork.h"
+#include "SimpleNeuralNetwork.h"
 
 #include <iostream>
 #include <fstream>
@@ -232,7 +232,7 @@ void TestRBM()
     model.GenerateImages("model_dump");
 }
 
-void TestSwarmNN()
+void TestSimpleNN()
 {
     using namespace cpplinq;
 
@@ -295,7 +295,7 @@ void TestSwarmNN()
 
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    SwarmNN model(256, 100);
+    SimpleNN model(256, 100);
 
     for (int i = 1; i < 20000; i++)
     {
@@ -313,7 +313,7 @@ void TestSwarmNN()
 
 void main()
 {
-    TestSwarmNN();
+    TestSimpleNN();
     //TestUSPS();
     //TestRBM();
 }
