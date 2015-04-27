@@ -141,11 +141,11 @@ namespace deep_learning_lib
 
                 // bottom_acitive : this bottom neuron is explained by this top neuron
                 double top_energy_bottom_active =
-                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight)) + log(2.0) +
-                    fmin(0.0, bottom_up_message);
+                    neuron_weight * bottom_value + fmin(0.0, bottom_up_message);
 
                 // bottom_inactive : this bottom neuron is explained by other top neuron
-                double top_energy_bottom_inactive = fmin(0.0, -bottom_up_message);
+                double top_energy_bottom_inactive =
+                    -fabs(neuron_weight) + fmin(0.0, -bottom_up_message);
 
                 top_energy += fmax(top_energy_bottom_active, top_energy_bottom_inactive);
             }
@@ -181,7 +181,7 @@ namespace deep_learning_lib
             int bottom_value = bottom_values[bottom_idx];
 
             double bottom_bias = bottom_biases[bottom_idx];
-            double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));
+            double bottom_bias_energy = bottom_bias * bottom_value;
 
             double max_bottom_energy = bottom_bias_energy;
             int max_bottom_energy_top_idx = -1;
@@ -193,8 +193,8 @@ namespace deep_learning_lib
                 double top_energy = top_energies(top_idx);
 
                 double bottom_energy_top_active = neuron_weight * bottom_value
-                    - log(1.0 + exp(neuron_weight)) + fmin(0.0, top_energy);
-                double bottom_energy_top_inactive = -log(2.0) + fmin(0.0, -top_energy);
+                    + fabs(neuron_weight) + fmin(0.0, -fabs(neuron_weight) + top_energy);
+                double bottom_energy_top_inactive = fmin(0.0, fabs(neuron_weight) - top_energy);
 
                 double bottom_energy = fmax(bottom_energy_top_active, bottom_energy_top_inactive);
 
