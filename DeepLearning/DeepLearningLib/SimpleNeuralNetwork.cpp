@@ -54,7 +54,7 @@ namespace deep_learning_lib
         fill(bottom_biases_, 0.0);
         fill(top_biases_, 0.0);
 
-        
+
         fill(top_values_, 0);
         fill(top_expects_, 0.0);
 
@@ -159,7 +159,7 @@ namespace deep_learning_lib
     {
         int top_length = top_length_;
         int bottom_length = bottom_length_;
-        
+
         array_view<const int> bottom_values = bottom_values_;
 
         array_view<const double> bottom_biases = bottom_biases_;
@@ -237,8 +237,9 @@ namespace deep_learning_lib
 
         Observe();
 
+        int top_length = top_length_;
         int bottom_length = bottom_length_;
-        
+
         array_view<const double> top_expects = top_expects_;
         array_view<const int> bottom_values = bottom_values_;
         array_view<const double> bottom_recon_expects = bottom_recon_expects_;
@@ -279,10 +280,21 @@ namespace deep_learning_lib
             double bottom_recon_expect = bottom_recon_expects[bottom_idx];
             int bottom_cluster = bottom_clusters[bottom_idx];
 
-            if (bottom_cluster >= 0)
+            for (int top_idx = 0; top_idx < top_length; top_idx++)
             {
-                double gradient = top_expects[bottom_cluster] * (bottom_value - bottom_recon_expect);
-                neuron_weights(bottom_cluster, bottom_idx) += gradient * data_weight;
+                double top_expect = top_expects[top_idx];
+                double& neuron_weight = neuron_weights(top_idx, bottom_idx);
+
+                if (top_idx == bottom_cluster)
+                {
+                    double gradient = top_expect * (bottom_value - bottom_recon_expect);
+                    neuron_weight += gradient * data_weight;
+                }
+                else
+                {
+                    double gradient = top_expect * -neuron_weight;
+                    neuron_weight += gradient * data_weight;
+                }
             }
 
             // special logic for bottom bias
