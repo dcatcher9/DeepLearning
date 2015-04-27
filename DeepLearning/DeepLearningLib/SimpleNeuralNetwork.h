@@ -14,7 +14,7 @@ namespace deep_learning_lib
         explicit SimpleNN(int bottom_length, int top_length, unsigned int seed = 0);
         SimpleNN(const SimpleNN&) = delete;
 
-        double Feed(const std::vector<int>& input_data, double data_weight = 0);
+        double Feed(const std::vector<int>& input_data, double data_weight = 0.0);
 
         void Dump(const std::string& folder, const std::string& tag = "") const;
 
@@ -24,7 +24,11 @@ namespace deep_learning_lib
         void PassUp();
         void PassDown();
 
+        void Learn(double data_weight = 0.0);
+
         double CalcReconError() const;
+
+        void Observe();
 
     private:
         int bottom_length_;
@@ -39,19 +43,17 @@ namespace deep_learning_lib
         concurrency::array_view<double> top_biases_;
 
         // current data
-        concurrency::array_view<int> bottom_values_;
+        concurrency::array_view<double> top_expects_;
         concurrency::array_view<int> top_values_;
-        concurrency::array_view<int> bottom_recon_values_;
-        concurrency::array_view<double> bottom_recon_raw_weights_;
+
+        concurrency::array_view<int> bottom_values_;
+        concurrency::array_view<double> bottom_recon_expects_;
+        concurrency::array_view<int> bottom_clusters_;
 
         concurrency::array_view<double, 2> bottom_up_messages_;
-        concurrency::array_view<double, 2> top_down_messages_;
-
-        // for debug
-        concurrency::array_view<double> top_expects_;
+        concurrency::array_view<double> top_energies_;
 
         //
-        tinymt_collection<1> bottom_rand_;
         tinymt_collection<1> top_rand_;
 
         const int kInferenceCount = 5;

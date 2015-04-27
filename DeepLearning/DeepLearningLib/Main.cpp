@@ -295,7 +295,7 @@ void TestSimpleNN()
 
     uniform_int_distribution<size_t> index_rand(0, train_data.size() - 1);
 
-    SimpleNN model(256, 100);
+    SimpleNN model(256, 20);
 
     for (int i = 1; i < 20000; i++)
     {
