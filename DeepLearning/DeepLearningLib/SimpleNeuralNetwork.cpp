@@ -99,11 +99,11 @@ namespace deep_learning_lib
             PassUp();
             PassDown();
 
-            Observe();
+            /*Observe();
             double err = CalcReconError();
             cout << "\t iter = " << i << "\terr = " << err << endl;
 
-            Dump("model_dump", "iter" + to_string(i));
+            Dump("model_dump", "iter" + to_string(i));*/
         }
 
         Learn(data_weight);
@@ -496,6 +496,7 @@ namespace deep_learning_lib
             ofs << endl;
         }
 
+        ofs << endl;
         ofs << "[bottom clusters]" << endl;
         for (int i = 0; i < 16; i++)
         {
