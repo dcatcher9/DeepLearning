@@ -71,7 +71,7 @@ namespace deep_learning_lib
     void SimpleNN::RandomizeParams(unsigned int seed)
     {
         default_random_engine generator(seed);
-        normal_distribution<double> distribution(0.0, 0.1);
+        normal_distribution<double> distribution(0.0, 1.0);
 
         vector<double> init_weights(bottom_length_ * top_length_);
 
@@ -124,6 +124,8 @@ namespace deep_learning_lib
         array_view<double> top_energies = top_energies_;
         top_energies.discard_data();
 
+        const double kNeuronTolerance = this->kNeuronTolerance;
+
         parallel_for_each(extent<1>(top_length), [=](index<1> idx) restrict(amp)
         {
             // for each top neuron
@@ -145,7 +147,7 @@ namespace deep_learning_lib
 
                 // bottom_inactive : this bottom neuron is explained by other top neuron
                 double top_energy_bottom_inactive =
-                    -fabs(neuron_weight) + fmin(0.0, -bottom_up_message);
+                    -fabs(neuron_weight) * kNeuronTolerance + fmin(0.0, -bottom_up_message);
 
                 top_energy += fmax(top_energy_bottom_active, top_energy_bottom_inactive);
             }
@@ -172,7 +174,8 @@ namespace deep_learning_lib
         array_view<int> bottom_clusters = bottom_clusters_;
         bottom_clusters.discard_data();
 
-        double kDoubleLowest = numeric_limits<double>::lowest();
+        const double kDoubleLowest = numeric_limits<double>::lowest();
+        const double kNeuronTolerance = this->kNeuronTolerance;
 
         parallel_for_each(extent<1>(bottom_length), [=](index<1> idx) restrict(amp)
         {
@@ -193,8 +196,8 @@ namespace deep_learning_lib
                 double top_energy = top_energies(top_idx);
 
                 double bottom_energy_top_active = neuron_weight * bottom_value
-                    + fabs(neuron_weight) + fmin(0.0, -fabs(neuron_weight) + top_energy);
-                double bottom_energy_top_inactive = fmin(0.0, fabs(neuron_weight) - top_energy);
+                    + fabs(neuron_weight) * kNeuronTolerance + fmin(0.0, -fabs(neuron_weight) * kNeuronTolerance + top_energy);
+                double bottom_energy_top_inactive = fmin(0.0, fabs(neuron_weight) * kNeuronTolerance - top_energy);
 
                 double bottom_energy = fmax(bottom_energy_top_active, bottom_energy_top_inactive);
 
@@ -292,8 +295,8 @@ namespace deep_learning_lib
                 }
                 else
                 {
-                    double gradient = top_expect * -neuron_weight;
-                    neuron_weight += gradient * data_weight;
+                    /*double gradient = top_expect * -neuron_weight;
+                    neuron_weight += gradient * data_weight;*/
                 }
             }
 
