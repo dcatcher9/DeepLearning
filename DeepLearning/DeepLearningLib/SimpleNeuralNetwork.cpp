@@ -117,6 +117,7 @@ namespace deep_learning_lib
         int bottom_length = bottom_length_;
 
         array_view<const double> top_biases = top_biases_;
+        array_view<const double> bottom_biases = bottom_biases_;
         array_view<const int> bottom_values = bottom_values_;
         array_view<const double, 2> neuron_weights = neuron_weights_;
         array_view<const double, 2> bottom_up_messages = bottom_up_messages_;
@@ -138,15 +139,17 @@ namespace deep_learning_lib
             for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
             {
                 int bottom_value = bottom_values[bottom_idx];
+                double bottom_bias = bottom_biases[bottom_idx];
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
                 double bottom_up_message = bottom_up_messages(bottom_idx, top_idx);
 
                 double top_active_energy = fmax(
-                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight)) + fmin(0.0, bottom_up_message),
+                    (neuron_weight + bottom_bias) * bottom_value - log(1.0 + exp(neuron_weight + bottom_bias)) + fmin(0.0, bottom_up_message),
                     -fabs(neuron_weight) * kNeuronTolerance + fmin(0.0, -bottom_up_message));
 
-                double top_inactive_energy = fmin(0.0, -bottom_up_message);
-                    //fmax(-log(2.0) + fmin(0.0, bottom_up_message), fmin(0.0, -bottom_up_message));
+                double top_inactive_energy = fmax(
+                    bottom_bias * bottom_value - log(1.0 + exp(bottom_bias)) + fmin(0.0, bottom_up_message), 
+                    fmin(0.0, -bottom_up_message));
 
                 top_energy += top_active_energy - top_inactive_energy;
             }
@@ -185,7 +188,7 @@ namespace deep_learning_lib
             double bottom_bias = bottom_biases[bottom_idx];
             double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));
 
-            double max_bottom_energy = bottom_bias_energy;
+            double max_bottom_energy = kDoubleLowest;
             int max_bottom_energy_top_idx = -1;
             double second_max_bottom_energy = kDoubleLowest;
 
@@ -195,15 +198,14 @@ namespace deep_learning_lib
                 double top_energy = top_energies(top_idx);
 
                 double bottom_energy_top_active =
-                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight))
+                    (neuron_weight + bottom_bias) * bottom_value - log(1.0 + exp(neuron_weight + bottom_bias))
                     + fabs(neuron_weight) * kNeuronTolerance
                     + fmin(0.0, -fabs(neuron_weight) * kNeuronTolerance + top_energy);
 
                 double bottom_energy_top_inactive =
-                    -log(2.0) + fmin(0.0, fabs(neuron_weight) * kNeuronTolerance - top_energy);
+                    bottom_bias_energy + fmin(0.0, fabs(neuron_weight) * kNeuronTolerance - top_energy);
 
-                double bottom_energy = bottom_energy_top_active;
-                    //fmax(bottom_energy_top_active, bottom_energy_top_inactive);
+                double bottom_energy = fmax(bottom_energy_top_active, bottom_energy_top_inactive);
 
                 bottom_up_messages(bottom_idx, top_idx) = bottom_energy;
 
@@ -296,13 +298,14 @@ namespace deep_learning_lib
 
                 if (top_idx == bottom_cluster)
                 {
-                    double gradient = top_expect * (bottom_value - bottom_recon_expect);
+                    // even if top_expect == 0, it will be responsible for this bottom neuron.
+                    double gradient = fmax(0.1, top_expect) * (bottom_value - bottom_recon_expect);
                     neuron_weight += gradient * data_weight;
                 }
                 else
                 {
-                    double gradient = top_expect * -neuron_weight * kNeuronTolerance;
-                    neuron_weight += gradient * data_weight;
+                    double gradient = fmin(1.0, top_expect * kNeuronTolerance * data_weight) * -neuron_weight;
+                    neuron_weight += gradient;
                 }
             }
 
@@ -360,19 +363,14 @@ namespace deep_learning_lib
             int bottom_idx = idx[0];
             int bottom_cluster = bottom_clusters[idx];
 
-            if (bottom_cluster == -1)
-            {
-                // this bottom neuron is explained by its own bias
-                bottom_recon_expects[idx] = CalcActivationProb(bottom_biases[idx]);
-            }
-            else
-            {
-                // this bottom neuron is explained by top neuron indexed by bottom_cluster
-                double top_expect = top_expects[bottom_cluster];
-                bottom_recon_expects[idx] =
-                    top_expect * CalcActivationProb(neuron_weights(bottom_cluster, bottom_idx)) +
-                    (1.0 - top_expect) * 0.5;
-            }
+            // this bottom neuron is explained by top neuron indexed by bottom_cluster
+            double top_expect = top_expects[bottom_cluster];
+            double neuron_weight = neuron_weights(bottom_cluster, bottom_idx);
+            double bottom_bias = bottom_biases[bottom_idx];
+
+            bottom_recon_expects[idx] =
+                top_expect * CalcActivationProb(neuron_weight + bottom_bias) +
+                (1.0 - top_expect) * CalcActivationProb(bottom_bias);
         });
     }
 
