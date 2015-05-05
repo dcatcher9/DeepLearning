@@ -57,6 +57,6 @@ namespace deep_learning_lib
         tinymt_collection<1> top_rand_;
 
         const int kInferenceCount = 5;
-        const double kNeuronTolerance = 0;
+        const double kNeuronTolerance = 1.0;
     };
 }

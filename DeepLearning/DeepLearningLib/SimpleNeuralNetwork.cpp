@@ -71,13 +71,13 @@ namespace deep_learning_lib
     void SimpleNN::RandomizeParams(unsigned int seed)
     {
         default_random_engine generator(seed);
-        normal_distribution<double> distribution(0.0, 1.0);
+        normal_distribution<double> distribution(0.0, 0.1);
 
         vector<double> init_weights(bottom_length_ * top_length_);
 
         for (auto& w : init_weights)
         {
-            w = distribution(generator);
+            w = 0;// distribution(generator);
         }
 
         concurrency::copy(init_weights.begin(), neuron_weights_);
@@ -141,15 +141,14 @@ namespace deep_learning_lib
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
                 double bottom_up_message = bottom_up_messages(bottom_idx, top_idx);
 
-                // bottom_acitive : this bottom neuron is explained by this top neuron
-                double top_energy_bottom_active =
-                    neuron_weight * bottom_value + fmin(0.0, bottom_up_message);
+                double top_active_energy = fmax(
+                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight)) + fmin(0.0, bottom_up_message),
+                    -fabs(neuron_weight) * kNeuronTolerance + fmin(0.0, -bottom_up_message));
 
-                // bottom_inactive : this bottom neuron is explained by other top neuron
-                double top_energy_bottom_inactive =
-                    -fabs(neuron_weight) * kNeuronTolerance + fmin(0.0, -bottom_up_message);
+                double top_inactive_energy = fmin(0.0, -bottom_up_message);
+                    //fmax(-log(2.0) + fmin(0.0, bottom_up_message), fmin(0.0, -bottom_up_message));
 
-                top_energy += fmax(top_energy_bottom_active, top_energy_bottom_inactive);
+                top_energy += top_active_energy - top_inactive_energy;
             }
 
             // each top neuron has the same message for bottom neuron
@@ -184,7 +183,7 @@ namespace deep_learning_lib
             int bottom_value = bottom_values[bottom_idx];
 
             double bottom_bias = bottom_biases[bottom_idx];
-            double bottom_bias_energy = bottom_bias * bottom_value;
+            double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));
 
             double max_bottom_energy = bottom_bias_energy;
             int max_bottom_energy_top_idx = -1;
@@ -195,11 +194,16 @@ namespace deep_learning_lib
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
                 double top_energy = top_energies(top_idx);
 
-                double bottom_energy_top_active = neuron_weight * bottom_value
-                    + fabs(neuron_weight) * kNeuronTolerance + fmin(0.0, -fabs(neuron_weight) * kNeuronTolerance + top_energy);
-                double bottom_energy_top_inactive = fmin(0.0, fabs(neuron_weight) * kNeuronTolerance - top_energy);
+                double bottom_energy_top_active =
+                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight))
+                    + fabs(neuron_weight) * kNeuronTolerance
+                    + fmin(0.0, -fabs(neuron_weight) * kNeuronTolerance + top_energy);
 
-                double bottom_energy = fmax(bottom_energy_top_active, bottom_energy_top_inactive);
+                double bottom_energy_top_inactive =
+                    -log(2.0) + fmin(0.0, fabs(neuron_weight) * kNeuronTolerance - top_energy);
+
+                double bottom_energy = bottom_energy_top_active;
+                    //fmax(bottom_energy_top_active, bottom_energy_top_inactive);
 
                 bottom_up_messages(bottom_idx, top_idx) = bottom_energy;
 
@@ -252,6 +256,8 @@ namespace deep_learning_lib
         array_view<double> bottom_biases = bottom_biases_;
         array_view<double, 2> neuron_weights = neuron_weights_;
 
+        const double kNeuronTolerance = this->kNeuronTolerance;
+
         parallel_for_each(top_expects.extent, [=](index<1> idx) restrict(amp)
         {
             int top_idx = idx[0];
@@ -295,8 +301,8 @@ namespace deep_learning_lib
                 }
                 else
                 {
-                    /*double gradient = top_expect * -neuron_weight;
-                    neuron_weight += gradient * data_weight;*/
+                    double gradient = top_expect * -neuron_weight * kNeuronTolerance;
+                    neuron_weight += gradient * data_weight;
                 }
             }
 
