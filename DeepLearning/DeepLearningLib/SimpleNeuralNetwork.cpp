@@ -117,6 +117,7 @@ namespace deep_learning_lib
         int bottom_length = bottom_length_;
 
         array_view<const double> top_biases = top_biases_;
+        array_view<const double> bottom_biases = bottom_biases_;
         array_view<const int> bottom_values = bottom_values_;
         array_view<const double, 2> neuron_weights = neuron_weights_;
         array_view<const double, 2> bottom_up_messages = bottom_up_messages_;
@@ -138,17 +139,18 @@ namespace deep_learning_lib
             for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
             {
                 int bottom_value = bottom_values[bottom_idx];
+                double bottom_bias = bottom_biases[bottom_idx];
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
-                double tolerance_weight = fabs(neuron_weight) * kNeuronTolerance;
+                double neuron_tolerance = fabs(neuron_weight) * kNeuronTolerance;
                 double bottom_up_message = bottom_up_messages(bottom_idx, top_idx);
 
                 double top_active_energy = fmax(
-                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight * bottom_value)) + fmin(0.0, bottom_up_message),
-                    -tolerance_weight - log(1.0 + exp(-tolerance_weight)) + fmin(0.0, -bottom_up_message));
+                    (neuron_weight + bottom_bias) * bottom_value - log(1.0 + exp(neuron_weight + bottom_bias))
+                    - (bottom_bias * bottom_value - log(1.0 + exp(bottom_bias)))
+                    + fmin(0.0, bottom_up_message),
+                    -neuron_tolerance + fmin(0.0, -bottom_up_message));
 
-                double top_inactive_energy = fmax(
-                    -log(1.0 + exp(neuron_weight * bottom_value)) + fmin(0.0, bottom_up_message),
-                    -log(1.0 + exp(-tolerance_weight)) + fmin(0.0, -bottom_up_message));
+                double top_inactive_energy = fmin(0.0, -bottom_up_message);
 
                 top_energy += top_active_energy - top_inactive_energy;
             }
@@ -176,6 +178,7 @@ namespace deep_learning_lib
         bottom_clusters.discard_data();
 
         const double kDoubleLowest = numeric_limits<double>::lowest();
+        const double kNeuronTolerance = this->kNeuronTolerance;
 
         parallel_for_each(extent<1>(bottom_length), [=](index<1> idx) restrict(amp)
         {
@@ -186,23 +189,21 @@ namespace deep_learning_lib
             double bottom_bias = bottom_biases[bottom_idx];
             double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));
 
-            double max_bottom_energy = bottom_bias_energy;
+            double max_bottom_energy = kDoubleLowest;
             int max_bottom_energy_top_idx = -1;
             double second_max_bottom_energy = kDoubleLowest;
 
             for (int top_idx = 0; top_idx < top_length; top_idx++)
             {
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
+                double neuron_tolerance = fabs(neuron_weight) * kNeuronTolerance;
                 double top_energy = top_energies(top_idx);
 
-                double bottom_energy_top_active =
-                    neuron_weight * bottom_value - log(1.0 + exp(neuron_weight))
-                    + fmin(0.0, top_energy);
-
-                double bottom_energy_top_inactive =
-                    -log(2.0) + fmin(0.0, -top_energy);
-
-                double bottom_energy = fmax(bottom_energy_top_active, bottom_energy_top_inactive);
+                double bottom_energy =
+                    (neuron_weight + bottom_bias) * bottom_value - log(1.0 + exp(neuron_weight + bottom_bias))
+                    - bottom_bias_energy
+                    + neuron_tolerance
+                    + fmin(0.0, -neuron_tolerance + top_energy);
 
                 bottom_up_messages(bottom_idx, top_idx) = bottom_energy;
 
@@ -285,16 +286,6 @@ namespace deep_learning_lib
 
             double top_expect = top_expects[top_idx];
 
-            int top_follower_count = 0;
-            for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
-            {
-                int bottom_cluster = bottom_clusters[bottom_idx];
-                if (bottom_cluster == top_idx)
-                {
-                    top_follower_count++;
-                }
-            }
-
             for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
             {
                 int bottom_value = bottom_values[bottom_idx];
@@ -304,7 +295,7 @@ namespace deep_learning_lib
 
                 double gradient = 0.0;
 
-                if (bottom_cluster == top_idx || top_follower_count == 0)
+                if (bottom_cluster == top_idx)
                 {
                     gradient = top_expect * (bottom_value - bottom_recon_expect);
                 }
