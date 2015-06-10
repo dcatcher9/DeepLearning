@@ -157,8 +157,6 @@ namespace deep_learning_lib
         int bottom_length = bottom_length_;
 
         array_view<const int> bottom_values = bottom_values_;
-
-        array_view<const double> bottom_biases = bottom_biases_;
         array_view<const double, 2> neuron_weights = neuron_weights_;
         array_view<const double> top_energies = top_energies_;
 
@@ -175,9 +173,6 @@ namespace deep_learning_lib
             // for each bottom neuron
             int bottom_idx = idx[0];
             int bottom_value = bottom_values[bottom_idx];
-
-            /*double bottom_bias = bottom_biases[bottom_idx];
-            double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));*/
 
             double max_bottom_energy = kDoubleLowest;
             int max_bottom_energy_top_idx = -1;
