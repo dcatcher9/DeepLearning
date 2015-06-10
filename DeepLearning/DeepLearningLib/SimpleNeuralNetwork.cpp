@@ -117,7 +117,6 @@ namespace deep_learning_lib
         int bottom_length = bottom_length_;
 
         array_view<const double> top_biases = top_biases_;
-        array_view<const double> bottom_biases = bottom_biases_;
         array_view<const int> bottom_values = bottom_values_;
         array_view<const double, 2> neuron_weights = neuron_weights_;
         array_view<const double, 2> bottom_up_messages = bottom_up_messages_;
@@ -139,20 +138,12 @@ namespace deep_learning_lib
             for (int bottom_idx = 0; bottom_idx < bottom_length; bottom_idx++)
             {
                 int bottom_value = bottom_values[bottom_idx];
-                double bottom_bias = bottom_biases[bottom_idx];
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
-                double neuron_tolerance = fabs(neuron_weight) * kNeuronTolerance;
+                double neuron_energy = neuron_weight * (2.0 * bottom_value - 1.0);
                 double bottom_up_message = bottom_up_messages(bottom_idx, top_idx);
 
-                double top_active_energy = fmax(
-                    (neuron_weight + bottom_bias) * bottom_value - log(1.0 + exp(neuron_weight + bottom_bias))
-                    - (bottom_bias * bottom_value - log(1.0 + exp(bottom_bias)))
-                    + fmin(0.0, bottom_up_message),
-                    -neuron_tolerance + fmin(0.0, -bottom_up_message));
-
-                double top_inactive_energy = fmin(0.0, -bottom_up_message);
-
-                top_energy += top_active_energy - top_inactive_energy;
+                top_energy += fmax(neuron_energy + fmin(0.0, bottom_up_message),
+                    fmin(0.0, neuron_energy) + fmin(0.0, -bottom_up_message));
             }
 
             // each top neuron has the same message for bottom neuron
@@ -178,7 +169,6 @@ namespace deep_learning_lib
         bottom_clusters.discard_data();
 
         const double kDoubleLowest = numeric_limits<double>::lowest();
-        const double kNeuronTolerance = this->kNeuronTolerance;
 
         parallel_for_each(extent<1>(bottom_length), [=](index<1> idx) restrict(amp)
         {
@@ -186,8 +176,8 @@ namespace deep_learning_lib
             int bottom_idx = idx[0];
             int bottom_value = bottom_values[bottom_idx];
 
-            double bottom_bias = bottom_biases[bottom_idx];
-            double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));
+            /*double bottom_bias = bottom_biases[bottom_idx];
+            double bottom_bias_energy = bottom_bias * bottom_value - log(1.0 + exp(bottom_bias));*/
 
             double max_bottom_energy = kDoubleLowest;
             int max_bottom_energy_top_idx = -1;
@@ -196,14 +186,11 @@ namespace deep_learning_lib
             for (int top_idx = 0; top_idx < top_length; top_idx++)
             {
                 double neuron_weight = neuron_weights(top_idx, bottom_idx);
-                double neuron_tolerance = fabs(neuron_weight) * kNeuronTolerance;
+                double neuron_energy = neuron_weight * (2.0 * bottom_value - 1.0);
                 double top_energy = top_energies(top_idx);
 
-                double bottom_energy =
-                    (neuron_weight + bottom_bias) * bottom_value - log(1.0 + exp(neuron_weight + bottom_bias))
-                    - bottom_bias_energy
-                    + neuron_tolerance
-                    + fmin(0.0, -neuron_tolerance + top_energy);
+                double bottom_energy = fmax(neuron_energy + top_energy, 0.0)
+                    - fmax(fmin(0.0, neuron_energy) + top_energy, 0.0);// always >= 0
 
                 bottom_up_messages(bottom_idx, top_idx) = bottom_energy;
 
