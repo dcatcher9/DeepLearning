@@ -1841,7 +1841,7 @@ namespace deep_learning_lib
         return output_layer.PredictLabel(bottom_data_layer, top_data_layer, conv_layer);
     }
 
-    pair<double, vector<tuple<int, int, int>>> DeepModel::Evaluate(const vector<const vector<double>>& dataset, const vector<const int>& labels, int layer_idx)
+    pair<double, vector<tuple<int, int, int>>> DeepModel::Evaluate(const vector<vector<double>>& dataset, const vector<int>& labels, int layer_idx)
     {
         assert(dataset.size() == labels.size());
 

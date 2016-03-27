@@ -346,8 +346,8 @@ namespace deep_learning_lib
 
         int PredictLabel(const std::vector<double>& data, const int layer_idx);
 
-        std::pair<double, std::vector<std::tuple<int, int, int>>> Evaluate(const std::vector<const std::vector<double>>& dataset,
-            const std::vector<const int>& labels, int layer_idx);
+        std::pair<double, std::vector<std::tuple<int, int, int>>> Evaluate(const std::vector<std::vector<double>>& dataset,
+            const std::vector<int>& labels, int layer_idx);
 
         void GenerateImages(const std::string& folder) const;
 

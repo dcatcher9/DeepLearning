@@ -49,11 +49,11 @@ void TestUSPS()
 
     const double train_fraction = 0.8;
 
-    vector<const vector<double>> train_data;
-    vector<const int> train_labels;
+    vector<vector<double>> train_data;
+    vector<int> train_labels;
 
-    vector<const vector<double>> test_data;
-    vector<const int> test_labels;
+    vector<vector<double>> test_data;
+    vector<int> test_labels;
 
     train_data.reserve(row_count);
     train_labels.reserve(row_count);
@@ -154,11 +154,11 @@ void TestRBM()
 
     const double train_fraction = 0.8;
 
-    vector<const vector<double>> train_data;
-    vector<const int> train_labels;
+    vector<vector<double>> train_data;
+    vector<int> train_labels;
 
-    vector<const vector<double>> test_data;
-    vector<const int> test_labels;
+    vector<vector<double>> test_data;
+    vector<int> test_labels;
 
     train_data.reserve(row_count);
     train_labels.reserve(row_count);
@@ -247,11 +247,11 @@ void TestSimpleNN()
 
     const double train_fraction = 0.8;
 
-    vector<const vector<int>> train_data;
-    vector<const int> train_labels;
+    vector<vector<int>> train_data;
+    vector<int> train_labels;
 
-    vector<const vector<int>> test_data;
-    vector<const int> test_labels;
+    vector<vector<int>> test_data;
+    vector<int> test_labels;
 
     train_data.reserve(row_count);
     train_labels.reserve(row_count);
